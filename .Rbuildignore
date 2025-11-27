@@ -1,0 +1,7 @@
+^\\.Rproj.user$
+^\\.Rhistory$
+^\\.RData$
+^\\.DS_Store$
+^DumpOld$
+^inst/scripts/dev_workflow\\.R$
+^LICENSE\\.md$
