@@ -12,7 +12,12 @@ install.packages(c("deldir", "Matrix"))
 if (!requireNamespace("edgeR", quietly = TRUE)) BiocManager::install("edgeR")
 ```
 
-Then install and load `CellEdgeR` as you would any other R package.
+Then install and load `CellEdgeR` as you would any other R package:
+
+```r
+devtools::install_github("GeNeHetX/CellEdgeR")
+library(CellEdgeR)
+```
 
 ## Typical workflow
 1. **Prepare your data**  
@@ -24,7 +29,8 @@ Then install and load `CellEdgeR` as you would any other R package.
    ```  
    This step can take some time for large datasets; the triangulations are stored in the returned object so you can repeatedly prune edges or recompute motifs without rebuilding. Keep `verbose = TRUE` to monitor progress.
 
-3. **Count motifs with optional pruning**
+3. **Count motifs with optional pruning (choose `max_edge_len`)**  
+   Before pruning, inspect edge lengths from `build_cell_graphs()` to identify a cutoff that removes the long, likely spurious edges while keeping the bulk of neighbors. Example analysis is shown in the next section.
    ```r
    motifs <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 50, include_wedges = TRUE)
    ```  
@@ -42,7 +48,7 @@ Then install and load `CellEdgeR` as you would any other R package.
    Provide sample metadata (rownames matching the sample IDs) and specify the model terms you want to test. Choose `fdr_method = "dagger"` only if you require the hierarchical DAG correction; otherwise the default BH correction is applied per layer.
 
 ## Choosing a pruning threshold
-The `max_edge_len` threshold controls which Delaunay edges are retained before motif counting. To pick a sensible cutoff, inspect the edge-length distribution from the built graphs and pick a value that removes the sparse tails while leaving the bulk of biologically relevant neighbors intact.
+The `max_edge_len` threshold in the workflow above controls which Delaunay edges are retained before motif counting. To pick a sensible cutoff, inspect the edge-length distribution from the built graphs and pick a value that removes the sparse tails while leaving the bulk of biologically relevant neighbors intact.
 
 Example analysis:
 
