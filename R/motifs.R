@@ -22,17 +22,32 @@ standardize_sample_df <- function(sample_df, sample_name) {
   )
 }
 
-build_delaunay_edges <- function(df) {
-  tri <- deldir::deldir(df$x, df$y)
-  segs <- tri$delsgs
-  if (is.null(segs) || NROW(segs) == 0) {
-    return(list(edges = matrix(numeric(0), ncol = 2), edge_len = numeric(0)))
+empty_edge_result <- function() {
+  list(edges = matrix(numeric(0), ncol = 2, dimnames = list(NULL, c("from", "to"))), edge_len = numeric(0))
+}
+
+build_delaunay_edges <- function(df, verbose = FALSE) {
+  if (!requireNamespace("geometry", quietly = TRUE)) {
+    stop("Package geometry is required. Install it with install.packages('geometry').")
   }
-  e <- unique(cbind(segs$ind1, segs$ind2))
-  colnames(e) <- c("from", "to")
   xy <- as.matrix(df[, c("x", "y")])
-  len <- sqrt(rowSums((xy[e[, 1], , drop = FALSE] - xy[e[, 2], , drop = FALSE])^2))
-  list(edges = e, edge_len = len)
+  if (nrow(xy) == 0) return(empty_edge_result())
+  keep_idx <- which(!duplicated(data.frame(x = xy[, 1], y = xy[, 2])))
+  xy_unique <- xy[keep_idx, , drop = FALSE]
+  if (NROW(xy_unique) < 2) return(empty_edge_result())
+  tri <- tryCatch(
+    geometry::delaunayn(xy_unique),
+    error = function(e) stop("geometry::delaunayn failed: ", conditionMessage(e), call. = FALSE)
+  )
+  if (is.null(tri) || NROW(tri) == 0) return(empty_edge_result())
+  tri <- as.matrix(tri)
+  edges <- rbind(tri[, c(1, 2), drop = FALSE], tri[, c(2, 3), drop = FALSE], tri[, c(1, 3), drop = FALSE])
+  edges <- cbind(pmin(edges[, 1], edges[, 2]), pmax(edges[, 1], edges[, 2]))
+  edges <- unique(edges)
+  edges <- matrix(keep_idx[edges], ncol = 2, dimnames = list(NULL, c("from", "to")))
+  storage.mode(edges) <- "integer"
+  len <- sqrt(rowSums((xy[edges[, 1], , drop = FALSE] - xy[edges[, 2], , drop = FALSE])^2))
+  list(edges = edges, edge_len = len)
 }
 
 format_label_triplets <- function(keys, lab_levels) {
@@ -66,8 +81,8 @@ build_cell_graphs <- function(
   n_cores = 1,
   verbose = TRUE
 ) {
-  if (!requireNamespace("deldir", quietly = TRUE)) {
-    stop("Package deldir is required. Install it with install.packages('deldir').")
+  if (!requireNamespace("geometry", quietly = TRUE)) {
+    stop("Package geometry is required. Install it with install.packages('geometry').")
   }
   samples <- names(cells_by_sample)
   if (is.null(samples) || length(samples) == 0) stop("cells_by_sample must be a *named* list.")
@@ -100,7 +115,7 @@ build_cell_graphs <- function(
       df <- cells_standard[[s]]
       labs_chr <- as.character(df$label)
       labs_id <- unname(lab_to_id[labs_chr])
-      edges_info <- build_delaunay_edges(df)
+      edges_info <- build_delaunay_edges(df, verbose = verbose)
       list(
         sample = s,
         n = nrow(df),
@@ -115,7 +130,7 @@ build_cell_graphs <- function(
       df <- cells_standard[[s]]
       labs_chr <- as.character(df$label)
       labs_id <- unname(lab_to_id[labs_chr])
-      edges_info <- build_delaunay_edges(df)
+      edges_info <- build_delaunay_edges(df, verbose = verbose)
       list(
         sample = s,
         n = nrow(df),

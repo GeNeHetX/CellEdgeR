@@ -8,7 +8,7 @@ Differential analysis of cell-type interaction motifs built from spatial coordin
 Add the package dependencies before installing `CellEdgeR`:
 
 ```r
-install.packages(c("deldir", "Matrix"))
+install.packages(c("geometry", "Matrix"))
 if (!requireNamespace("edgeR", quietly = TRUE)) BiocManager::install("edgeR")
 ```
 
@@ -22,6 +22,13 @@ library(CellEdgeR)
 ## Typical workflow
 1. **Prepare your data**  
    Provide a *named* list of samples where each element is a data frame with numeric `x`, `y` coordinates in the first two columns and a label vector (cell type, cluster, etc.) in the third column.
+
+   To generate a quick synthetic dataset for testing, call the helper bundled with the package:
+
+   ```r
+   library(CellEdgeR)
+   samples_list <- make_demo_samples(seed = 42)
+   ```
 
 2. **Build the intact graphs**  
    ```r

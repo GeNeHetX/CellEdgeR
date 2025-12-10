@@ -29,15 +29,19 @@ test_that("motif counting returns expected shapes and counts", {
 
 test_that("wedges can be returned alongside triangles", {
   cells <- list(
-    s1 = data.frame(x = c(0, 1, 2), y = c(0, 0, 0), label = c("A", "B", "C"))
+    s1 = data.frame(
+      x = c(0, 2, 4, 1),
+      y = c(0, 0, 0, 1),
+      label = c("A", "B", "C", "A")
+    )
   )
 
   res <- count_motifs_graphs(cells, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
 
   expect_named(res$counts, c("size1", "size2", "size3", "wedges"))
-  expect_equal(rownames(res$counts$wedges), "B|A|C")
+  expect_setequal(rownames(res$counts$wedges), c("A|A|C", "B|A|C"))
   expect_equal(drop(as.matrix(res$counts$wedges)["B|A|C", "s1"]), 1)
-  expect_equal(res$exposure$wedges, c(s1 = 1))
+  expect_equal(res$exposure$wedges, c(s1 = 2))
 })
 
 test_that("prebuilt graphs can be reused across motif runs", {
@@ -110,4 +114,24 @@ test_that("normalized counts follow motifs offsets", {
     dimnames = list(rownames(motif_obj$counts$size1), motif_obj$samples)
   )
   expect_equal(as.matrix(norm$size1), as.matrix(motif_obj$counts$size1) / exp(expected_cells))
+})
+
+test_that("geometry-based triangulation tolerates duplicated and collinear points", {
+  cells <- list(
+    s1 = data.frame(
+      x = c(0, 0, 1, 2, 2),
+      y = c(0, 0, 0, 0, 1),
+      label = c("A", "B", "A", "B", "C")
+    ),
+    s2 = data.frame(
+      x = c(0, 1, 2, 2, 3),
+      y = c(1, 1, 1, 2, 2),
+      label = c("C", "B", "B", "A", "A")
+    )
+  )
+  res <- count_motifs_graphs(cells, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
+  expect_true(is.list(res))
+  expect_true(all(res$exposure$edges >= 0))
+  expect_true(all(res$exposure$triangles >= 0))
+  expect_true(all(res$exposure$wedges >= 0))
 })

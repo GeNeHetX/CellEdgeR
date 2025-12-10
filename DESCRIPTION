@@ -10,12 +10,12 @@ Authors@R:
 Description: Build Delaunay graphs from spatial cell coordinates, count cell-type
     singles, edges, and triangles, and test for differential abundance with
     edgeR.
-License: CellEdgeR Attribution License (CEL-1.0) + file LICENSE
+License: CC BY-NC 4.0 + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Imports:
     Rcpp,
-    deldir,
+    geometry,
     Matrix,
     edgeR,
     stats,
