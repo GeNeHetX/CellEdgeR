@@ -28,6 +28,13 @@ library(CellEdgeR)
    ```r
    library(CellEdgeR)
    samples_list <- make_demo_samples(seed = 42)
+   head(samples_list[[1]])
+
+   metadata_df <- data.frame(
+     condition = rep(c("ctrl", "treated"), each = length(samples_list) / 2),
+     batch = sample(c("batch1", "batch2"),length(samples_list),replace=T),
+     row.names = names(samples_list)
+   )
    ```
 
 2. **Build the intact graphs**  
@@ -45,14 +52,33 @@ library(CellEdgeR)
 
 4. **Fit differential models**
    ```r
-   results <- cellmotif_edger(
+   results <- motif_edger(
      motif_obj = motifs,
-     sample_df = metadata_df,
+     sample_df = metadata_df,  # data frame with sample metadata (rownames = sample IDs)
      design_formula = "~ condition + batch",
-     coef = "conditionTreatment"
+     coef = "conditiontreated"
    )
    ```  
    Provide sample metadata (rownames matching the sample IDs) and specify the model terms you want to test. Choose `fdr_method = "dagger"` only if you require the hierarchical DAG correction; otherwise the default BH correction is applied per layer.
+
+5. **Visualize motifs (optional)**  
+   - Boxplot of normalized counts for a specific motif across samples (grouped by condition):  
+     ```r
+     norm <- normalize_motif_counts(motifs, pseudo = 0.5)
+     plot_motif_box(norm, motif_key = "a|a|b", layer = "size3", sample_df = metadata_df, group_var = "condition")
+
+     ```
+   - Plot a sample graph and highlight a motif (nodes and edges):  
+     ```r
+      plot_sample_graph(graphs, sample_id = "s1", max_edge_len = 50,motif_key = "a|a|b", motif_layer = "size3")
+
+
+     ```
+     - Or plot multiple ones:
+     ```r
+     library(ggpubr)
+      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a|a|b", motif_layer = "size3"))
+      ```
 
 ## Choosing a pruning threshold
 The `max_edge_len` threshold in the workflow above controls which Delaunay edges are retained before motif counting. To pick a sensible cutoff, inspect the edge-length distribution from the built graphs and pick a value that removes the sparse tails while leaving the bulk of biologically relevant neighbors intact.
@@ -64,10 +90,12 @@ edge_lengths <- unlist(lapply(graphs$per_sample, function(ps) ps$edge_len))
 summary(edge_lengths)
 
 ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
-  ggplot2::geom_histogram(binwidth = 1) +
-  ggplot2::scale_x_continuous("Edge length") +
-  ggplot2::ylab("Count") +
-  ggplot2::ggtitle("Edge length distribution")
+  ggplot2::geom_density(fill = "#4477aa", alpha = 0.3, color = "#223355") +
+  ggplot2::scale_x_log10("Edge length (log scale)") +
+  ggplot2::ylab("Density") +
+  ggplot2::ggtitle("Edge length distribution (density, log-x)") +
+  ggplot2::theme_minimal()
+  
 ```
 
 Plotting the histogram (or a density/ECDF) lets you visualize where most edges fall and suggests a `max_edge_len` value that trims only the longest, likely spurious connections. Re-run `count_motifs_graphs()` with that threshold and assess how sensitive the motif counts (and downstream tests) are to the change.

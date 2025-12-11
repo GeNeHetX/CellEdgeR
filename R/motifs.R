@@ -122,7 +122,8 @@ build_cell_graphs <- function(
         labels_id = labs_id,
         labels_chr = labs_chr,
         edges = edges_info$edges,
-        edge_len = edges_info$edge_len
+        edge_len = edges_info$edge_len,
+        xy = as.matrix(df[, c("x", "y")])
       )
     }, mc.cores = n_cores)
   } else {
@@ -137,7 +138,8 @@ build_cell_graphs <- function(
         labels_id = labs_id,
         labels_chr = labs_chr,
         edges = edges_info$edges,
-        edge_len = edges_info$edge_len
+        edge_len = edges_info$edge_len,
+        xy = as.matrix(df[, c("x", "y")])
       )
     })
   }
@@ -511,9 +513,13 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
 #'
 #' @param motif_obj Object returned by [count_motifs_graphs()].
 #' @param pseudo Small positive constant that was also provided to [motif_edger()]; defaults to `0.5`.
-#' @return List with `size1`, `size2`, and `size3` count matrices matching `motif_obj$counts`.
+#' @param return_lr Logical; if `TRUE`, also returns Poisson log-likelihood ratio statistics comparing observed counts
+#'   to their expected values (from the offsets). Defaults to `FALSE`.
+#' @return List with normalized `size1`, `size2`, and `size3` count matrices matching `motif_obj$counts`.
+#'   When `return_lr = TRUE`, an additional element `lr` contains matrices of likelihood-ratio statistics
+#'   for the same layers.
 #' @export
-normalize_motif_counts <- function(motif_obj, pseudo = 0.5) {
+normalize_motif_counts <- function(motif_obj, pseudo = 0.5, return_lr = FALSE) {
   requireNamespace("Matrix", quietly = TRUE) || stop("Package Matrix is required.")
   offsets <- compute_motif_offsets(motif_obj, pseudo)
 
@@ -522,16 +528,38 @@ normalize_motif_counts <- function(motif_obj, pseudo = 0.5) {
       return(Matrix::Matrix(0, nrow = 0, ncol = ncol(count_mat), sparse = TRUE,
         dimnames = dimnames(count_mat)))
     }
-    norm <- as.matrix(count_mat)
-    norm <- norm / exp(as.matrix(log_offset))
-    Matrix::Matrix(norm, sparse = TRUE, dimnames = dimnames(count_mat))
+    obs <- as.matrix(count_mat)
+    expct <- exp(as.matrix(log_offset))
+    norm <- obs / expct
+    list(norm = Matrix::Matrix(norm, sparse = TRUE, dimnames = dimnames(count_mat)), expected = expct, observed = obs)
   }
 
-  list(
-    size1 = normalize_layer(motif_obj$counts$size1, offsets$size1),
-    size2 = normalize_layer(motif_obj$counts$size2, offsets$size2),
-    size3 = normalize_layer(motif_obj$counts$size3, offsets$size3)
-  )
+  lr_layer <- function(obs, expct) {
+    if (is.null(obs) || length(obs) == 0) {
+      return(Matrix::Matrix(0, nrow = 0, ncol = ncol(expct), sparse = TRUE,
+        dimnames = dimnames(expct)))
+    }
+    out <- matrix(0, nrow = nrow(obs), ncol = ncol(obs), dimnames = dimnames(obs))
+    pos <- expct > 0 & obs > 0
+    out[pos] <- 2 * (obs[pos] * log(obs[pos] / expct[pos]) - (obs[pos] - expct[pos]))
+    infpos <- expct == 0 & obs > 0
+    out[infpos] <- Inf
+    Matrix::Matrix(out, sparse = TRUE, dimnames = dimnames(obs))
+  }
+
+  n1 <- normalize_layer(motif_obj$counts$size1, offsets$size1)
+  n2 <- normalize_layer(motif_obj$counts$size2, offsets$size2)
+  n3 <- normalize_layer(motif_obj$counts$size3, offsets$size3)
+
+  out <- list(size1 = n1$norm, size2 = n2$norm, size3 = n3$norm)
+  if (return_lr) {
+    out$lr <- list(
+      size1 = lr_layer(n1$observed, n1$expected),
+      size2 = lr_layer(n2$observed, n2$expected),
+      size3 = lr_layer(n3$observed, n3$expected)
+    )
+  }
+  out
 }
 
 #' Differential motif testing with edgeR and optional FDR control
