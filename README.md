@@ -78,8 +78,10 @@ library(CellEdgeR)
    library(ggpubr)
       
    normcnt <- edgeRnorm_motif_counts(motifs)
-   mergedf=data.frame((t(as.matrix(normcnt$size3))[rownames(metadata_df),]),metadata_df)
-   ggboxplot(mergedf,x="batch",fill="condition",y="a_a_b")
+   mergedf3=data.frame((t(as.matrix(normcnt$size3))[rownames(metadata_df),]),metadata_df)
+   ggboxplot(mergedf3,x="batch",fill="condition",y="a_a_b")
+
+
 
    ```
 
@@ -95,6 +97,9 @@ library(CellEdgeR)
      ```r
      library(ggpubr)
       ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a_a_b", motif_layer = "size3"))
+
+      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a_a", motif_layer = "size2"))
+
       ```
 
 ## Choosing a pruning threshold

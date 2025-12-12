@@ -567,6 +567,27 @@ edgeRnorm_motif_counts  <- function(
   )
 }
 
+#' @rdname edgeRnorm_motif_counts
+#' @export
+normalize_motif_counts <- function(
+  motif_obj,
+  pseudo = 0.5,
+  sample_df = NULL,
+  design_formula = "~ 1",
+  use_null = TRUE,
+  return_log = FALSE,
+  eps = 0.5,
+  verbose = FALSE
+) {
+  if (is.null(sample_df)) sample_df <- data.frame(row.names = motif_obj$samples)
+  edgeRnorm_motif_counts(
+    motif_obj = motif_obj,
+    pseudo = pseudo,
+    return_log = return_log,
+    eps = eps
+  )
+}
+
 
 
 #' Differential motif testing with edgeR and optional FDR control
