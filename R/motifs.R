@@ -52,9 +52,10 @@ build_delaunay_edges <- function(df, verbose = FALSE) {
 
 format_label_triplets <- function(keys, lab_levels) {
   if (!length(keys)) return(character(0))
-  ids_mat <- do.call(rbind, strsplit(keys, "\\|"))
+  keys <- gsub("\\|", "_", keys)
+  ids_mat <- do.call(rbind, strsplit(keys, "_"))
   lab_mat <- matrix(lab_levels[as.integer(ids_mat)], ncol = ncol(ids_mat))
-  apply(lab_mat, 1, function(v) paste(v, collapse = "|"))
+  apply(lab_mat, 1, function(v) paste(v, collapse = "_"))
 }
 
 filter_edges_by_threshold <- function(edges, lengths, threshold) {
@@ -267,7 +268,7 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
     }
     la <- ps$labels_chr[e[, 1]]
     lb <- ps$labels_chr[e[, 2]]
-    key <- ifelse(la <= lb, paste(la, lb, sep = "|"), paste(lb, la, sep = "|"))
+    key <- ifelse(la <= lb, paste(la, lb, sep = "_"), paste(lb, la, sep = "_"))
     pairs_by_sample[[s]] <- sort(tapply(rep(1L, length(key)), key, sum))
   }
   pairs_all_keys <- unique(unlist(lapply(pairs_by_sample, names), use.names = FALSE))
@@ -428,7 +429,7 @@ build_pair_offsets <- function(Y2, Y1, log_edges, pseudo) {
   if (nrow(Y2) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y2)))
   }
-  ab <- do.call(rbind, strsplit(rownames(Y2), "\\|"))
+  ab <- do.call(rbind, strsplit(rownames(Y2), "_"))
   a <- ab[, 1]
   b <- ab[, 2]
   NA_ <- Matrix::Matrix(0, nrow = length(a), ncol = ncol(Y1), dimnames = list(rownames(Y2), colnames(Y1)))
@@ -450,15 +451,15 @@ build_tri_offsets <- function(Y3, Y2, log_tris, pseudo) {
   if (nrow(Y3) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y3)))
   }
-  abc <- do.call(rbind, strsplit(rownames(Y3), "\\|"))
+  abc <- do.call(rbind, strsplit(rownames(Y3), "_"))
   a <- abc[, 1]
   b <- abc[, 2]
   c <- abc[, 3]
   pair_key_vec <- function(u, v) {
     idx <- u <= v
     out <- character(length(u))
-    out[idx] <- paste(u[idx], v[idx], sep = "|")
-    out[!idx] <- paste(v[!idx], u[!idx], sep = "|")
+    out[idx] <- paste(u[idx], v[idx], sep = "_")
+    out[!idx] <- paste(v[!idx], u[!idx], sep = "_")
     out
   }
   ABk <- pair_key_vec(a, b)
@@ -507,60 +508,66 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
   )
 }
 
-#' Normalize motif counts via the statistical offsets
+
+#' edgeR-normalized motif counts with optional null expectations
 #'
-#' Divide each motif matrix entry by the per-sample offset used in the downstream edgeR fits.
+#' Fits edgeR models per motif layer using supplied offsets and design, then returns normalized
+#' counts or log-residual diagnostics relative to the fitted means. Useful when you want expectations
+#' under a specific design (optionally removing a coefficient) rather than raw offsets alone.
 #'
-#' @param motif_obj Object returned by [count_motifs_graphs()].
-#' @param pseudo Small positive constant that was also provided to [motif_edger()]; defaults to `0.5`.
-#' @param return_lr Logical; if `TRUE`, also returns Poisson log-likelihood ratio statistics comparing observed counts
-#'   to their expected values (from the offsets). Defaults to `FALSE`.
-#' @return List with normalized `size1`, `size2`, and `size3` count matrices matching `motif_obj$counts`.
-#'   When `return_lr = TRUE`, an additional element `lr` contains matrices of likelihood-ratio statistics
-#'   for the same layers.
+#' @param motif_obj Output of [count_motifs_graphs()].
+#' @param pseudo Small positive constant added to counts in log/ratio computations.
+#' @param return_log Logical; if `TRUE`, returns `log(obs + eps) - log(fitted + eps)`, otherwise `(obs + eps)/(fitted + eps)`.
+#' @param eps Small stabilizer for ratios/logs.
+#' @return List with normalized matrices (`size1`, `size2`, `size3`) 
 #' @export
-normalize_motif_counts <- function(motif_obj, pseudo = 0.5, return_lr = FALSE) {
-  requireNamespace("Matrix", quietly = TRUE) || stop("Package Matrix is required.")
+edgeRnorm_motif_counts  <- function(
+  motif_obj,
+  pseudo = 0.5,
+  return_log = TRUE,
+  eps = 0.5
+) {
+  require(edgeR)
+  require(Matrix)
+
+  samples <- motif_obj$samples
   offsets <- compute_motif_offsets(motif_obj, pseudo)
 
-  normalize_layer <- function(count_mat, log_offset) {
-    if (nrow(count_mat) == 0) {
-      return(Matrix::Matrix(0, nrow = 0, ncol = ncol(count_mat), sparse = TRUE,
-        dimnames = dimnames(count_mat)))
+  design_null <- matrix(1, nrow = length(samples), ncol = 1)
+  colnames(design_null) <- "Intercept"
+
+  fit_layer <- function(Y, off) {
+    if (is.null(Y) || nrow(Y) == 0) {
+      return(Matrix(0, nrow = 0, ncol = length(samples),
+                    sparse = TRUE, dimnames = list(NULL, samples)))
     }
-    obs <- as.matrix(count_mat)
-    expct <- exp(as.matrix(log_offset))
-    norm <- obs / expct
-    list(norm = Matrix::Matrix(norm, sparse = TRUE, dimnames = dimnames(count_mat)), expected = expct, observed = obs)
+
+    dge <- DGEList(counts = Y)
+    dge <- calcNormFactors(dge)
+    dge$offset <- as.matrix(off)
+
+    dge <- estimateDisp(dge, design = design_null)
+    fit <- glmQLFit(dge, design = design_null)
+
+    mu <- fit$fitted.values
+    obs <- as.matrix(Y)
+
+    if (return_log)
+      out <- log2(obs + eps) - log2(mu + eps)
+    else
+      out <- (obs + eps) / (mu + eps)
+
+    Matrix(out, sparse = TRUE, dimnames = dimnames(Y))
   }
 
-  lr_layer <- function(obs, expct) {
-    if (is.null(obs) || length(obs) == 0) {
-      return(Matrix::Matrix(0, nrow = 0, ncol = ncol(expct), sparse = TRUE,
-        dimnames = dimnames(expct)))
-    }
-    out <- matrix(0, nrow = nrow(obs), ncol = ncol(obs), dimnames = dimnames(obs))
-    pos <- expct > 0 & obs > 0
-    out[pos] <- 2 * (obs[pos] * log(obs[pos] / expct[pos]) - (obs[pos] - expct[pos]))
-    infpos <- expct == 0 & obs > 0
-    out[infpos] <- Inf
-    Matrix::Matrix(out, sparse = TRUE, dimnames = dimnames(obs))
-  }
-
-  n1 <- normalize_layer(motif_obj$counts$size1, offsets$size1)
-  n2 <- normalize_layer(motif_obj$counts$size2, offsets$size2)
-  n3 <- normalize_layer(motif_obj$counts$size3, offsets$size3)
-
-  out <- list(size1 = n1$norm, size2 = n2$norm, size3 = n3$norm)
-  if (return_lr) {
-    out$lr <- list(
-      size1 = lr_layer(n1$observed, n1$expected),
-      size2 = lr_layer(n2$observed, n2$expected),
-      size3 = lr_layer(n3$observed, n3$expected)
-    )
-  }
-  out
+  list(
+    size1 = fit_layer(motif_obj$counts$size1, offsets$size1),
+    size2 = fit_layer(motif_obj$counts$size2, offsets$size2),
+    size3 = fit_layer(motif_obj$counts$size3, offsets$size3)
+  )
 }
+
+
 
 #' Differential motif testing with edgeR and optional FDR control
 #'
@@ -683,7 +690,7 @@ cellmotif_edger <- function(
 
     edges <- list()
     if (length(size1) && length(size2)) {
-      ab <- do.call(rbind, strsplit(size2, "\\|"))
+      ab <- do.call(rbind, strsplit(size2, "_"))
       for (i in seq_along(size2)) {
         a <- ab[i, 1]
         b <- ab[i, 2]
@@ -692,8 +699,8 @@ cellmotif_edger <- function(
       }
     }
     if (length(size2) && length(size3)) {
-      abc <- do.call(rbind, strsplit(size3, "\\|"))
-      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "|") else paste(v, u, sep = "|")
+      abc <- do.call(rbind, strsplit(size3, "_"))
+      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "_") else paste(v, u, sep = "_")
       for (i in seq_along(size3)) {
         A <- abc[i, 1]
         B <- abc[i, 2]
@@ -710,7 +717,7 @@ cellmotif_edger <- function(
     keep1 <- if (length(q1)) (q1 <= alpha) else logical(0)
     q2 <- rep(NA_real_, length(size2))
     if (length(size2)) {
-      ab <- do.call(rbind, strsplit(size2, "\\|"))
+      ab <- do.call(rbind, strsplit(size2, "_"))
       ok <- logical(length(size2))
       for (i in seq_along(size2)) {
         ok[i] <- (ab[i, 1] %in% size1[keep1]) && (ab[i, 2] %in% size1[keep1])
@@ -721,8 +728,8 @@ cellmotif_edger <- function(
     }
     q3 <- rep(NA_real_, length(size3))
     if (length(size3)) {
-      abc <- do.call(rbind, strsplit(size3, "\\|"))
-      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "|") else paste(v, u, sep = "|")
+      abc <- do.call(rbind, strsplit(size3, "_"))
+      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "_") else paste(v, u, sep = "_")
       ok3 <- logical(length(size3))
       keep2_set <- if (length(size2)) size2[which(q2 <= alpha)] else character(0)
       for (i in seq_along(size3)) {

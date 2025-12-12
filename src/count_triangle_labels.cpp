@@ -103,7 +103,7 @@ List count_triangle_labels_cpp(
         if (a > b) std::swap(a, b);
         if (b > c) std::swap(b, c);
         if (a > b) std::swap(a, b);
-        std::string key = std::to_string(a) + "|" + std::to_string(b) + "|" + std::to_string(c);
+        std::string key = std::to_string(a) + "_" + std::to_string(b) + "_" + std::to_string(c);
         auto it = counter.find(key);
         if (it == counter.end()) counter.emplace(key, 1);
         else (++(it->second));
@@ -125,7 +125,7 @@ List count_triangle_labels_cpp(
             int leaf2 = labels[k];
             int small_leaf = std::min(leaf1, leaf2);
             int large_leaf = std::max(leaf1, leaf2);
-            std::string wedge_key = std::to_string(center) + "|" + std::to_string(small_leaf) + "|" + std::to_string(large_leaf);
+            std::string wedge_key = std::to_string(center) + "_" + std::to_string(small_leaf) + "_" + std::to_string(large_leaf);
             auto itw = wedge_counter.find(wedge_key);
             if (itw == wedge_counter.end()) wedge_counter.emplace(wedge_key, 1);
             else ++(itw->second);

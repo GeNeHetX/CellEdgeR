@@ -62,22 +62,39 @@ library(CellEdgeR)
    Provide sample metadata (rownames matching the sample IDs) and specify the model terms you want to test. Choose `fdr_method = "dagger"` only if you require the hierarchical DAG correction; otherwise the default BH correction is applied per layer.
 
 5. **Visualize motifs (optional)**  
-   - Boxplot of normalized counts for a specific motif across samples (grouped by condition):  
+   <!-- - Boxplot of normalized counts for a specific motif across samples (grouped by condition):  
      ```r
      norm <- normalize_motif_counts(motifs, pseudo = 0.5)
-     plot_motif_box(norm, motif_key = "a|a|b", layer = "size3", sample_df = metadata_df, group_var = "condition")
-
+     plot_motif_box(norm, motif_key = "a_a_b", layer = "size3", sample_df = metadata_df, group_var = "condition")
      ```
-   - Plot a sample graph and highlight a motif (nodes and edges):  
+     Or switch to likelihood ratios instead of normalized counts:
      ```r
-      plot_sample_graph(graphs, sample_id = "s1", max_edge_len = 50,motif_key = "a|a|b", motif_layer = "size3")
+     lr <- normalize_motif_counts(motifs, pseudo = 0.5, return_lr = TRUE)
+     plot_motif_box(lr, motif_key = "a_a_b", layer = "size3", sample_df = metadata_df, group_var = "condition")
+     ```
+   Or use a custom plot -->
+   Use a custom plot
+   ```r
+   library(ggpubr)
+      
+   normcnt <- edgeRnorm_motif_counts(motifs)
+   mergedf=data.frame((t(as.matrix(normcnt$size3))[rownames(metadata_df),]),metadata_df)
+   ggboxplot(mergedf,x="batch",fill="condition",y="a_a_b")
+
+   ```
+
+   - Plot a sample graph and highlight a motif (nodes and edges). If your `graph_obj` was built with an older CellEdgeR that did not store coordinates, also pass the original `cells_by_sample` list:  
+     ```r
+     plot_sample_graph(graphs, sample_id = "s1", max_edge_len = 50,
+                       motif_key = "a_a_b", motif_layer = "size3",
+                       cells_by_sample = samples_list)
 
 
      ```
      - Or plot multiple ones:
      ```r
      library(ggpubr)
-      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a|a|b", motif_layer = "size3"))
+      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a_a_b", motif_layer = "size3"))
       ```
 
 ## Choosing a pruning threshold

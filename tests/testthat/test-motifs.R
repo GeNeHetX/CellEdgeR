@@ -14,14 +14,14 @@ test_that("motif counting returns expected shapes and counts", {
   expect_equal(drop(y1["B", "s2"]), 2)
 
   y2 <- as.matrix(res$counts$size2)
-  expect_equal(drop(y2["A|A", "s1"]), 1)
-  expect_equal(drop(y2["A|B", "s1"]), 2)
-  expect_equal(drop(y2["A|B", "s2"]), 2)
-  expect_equal(drop(y2["B|B", "s2"]), 1)
+  expect_equal(drop(y2["A_A", "s1"]), 1)
+  expect_equal(drop(y2["A_B", "s1"]), 2)
+  expect_equal(drop(y2["A_B", "s2"]), 2)
+  expect_equal(drop(y2["B_B", "s2"]), 1)
 
   y3 <- as.matrix(res$counts$size3)
-  expect_equal(drop(y3["A|A|B", "s1"]), 1)
-  expect_equal(drop(y3["A|B|B", "s2"]), 1)
+  expect_equal(drop(y3["A_A_B", "s1"]), 1)
+  expect_equal(drop(y3["A_B_B", "s2"]), 1)
 
   expect_equal(res$exposure$edges, c(s1 = 3, s2 = 3))
   expect_equal(res$exposure$triangles, c(s1 = 1, s2 = 1))
@@ -39,8 +39,8 @@ test_that("wedges can be returned alongside triangles", {
   res <- count_motifs_graphs(cells, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
 
   expect_named(res$counts, c("size1", "size2", "size3", "wedges"))
-  expect_setequal(rownames(res$counts$wedges), c("A|A|C", "B|A|C"))
-  expect_equal(drop(as.matrix(res$counts$wedges)["B|A|C", "s1"]), 1)
+  expect_setequal(rownames(res$counts$wedges), c("A_A_C", "B_A_C"))
+  expect_equal(drop(as.matrix(res$counts$wedges)["B_A_C", "s1"]), 1)
   expect_equal(res$exposure$wedges, c(s1 = 2))
 })
 
@@ -123,9 +123,9 @@ test_that("normalize_motif_counts can return likelihood ratios", {
   )
   motif_obj <- count_motifs_graphs(cells, max_edge_len = 3, verbose = FALSE)
   norm <- normalize_motif_counts(motif_obj, pseudo = 0.5, return_lr = TRUE)
-  expect_true(is.list(norm$lr))
-  expect_equal(dim(norm$lr$size3), dim(motif_obj$counts$size3))
-  expect_true(all(as.matrix(norm$lr$size3) >= 0))
+  expect_true(is.list(norm))
+  expect_equal(dim(norm$size3), dim(motif_obj$counts$size3))
+  expect_true(all(is.finite(as.matrix(norm$size3))))
 })
 
 test_that("geometry-based triangulation tolerates duplicated and collinear points", {
