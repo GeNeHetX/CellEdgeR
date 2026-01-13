@@ -51,7 +51,7 @@ test_that("prebuilt graphs can be reused across motif runs", {
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
 
-  expect_s3_class(graphs, "cellEdgeR_graphs")
+  expect_true(inherits(graphs, "cellEdgeR_obj"))
   res_a <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 3, verbose = FALSE)
   res_b <- count_motifs_graphs(graph_obj = graphs, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
   res_positional <- count_motifs_graphs(graphs, max_edge_len = 3, verbose = FALSE)
@@ -96,6 +96,35 @@ test_that("edgeR pipeline runs with DAG correction", {
   expect_true(is.list(res_dag$dag))
   expect_true(is.matrix(res_dag$dag$edges) || length(res_dag$dag$edges) == 0)
   expect_true(all(vapply(res_dag$results, function(df) is.null(df) || "FDR_DAG" %in% names(df), logical(1))))
+})
+
+test_that("wedges are modeled when not merged", {
+  cells <- list(
+    s1 = data.frame(
+      x = c(0, 2, 4, 1),
+      y = c(0, 0, 0, 1),
+      label = c("A", "B", "C", "A")
+    ),
+    s2 = data.frame(
+      x = c(0, 2, 4, 1),
+      y = c(0, 0, 0, 1),
+      label = c("A", "B", "C", "A")
+    )
+  )
+  motif_obj <- count_motifs_graphs(cells, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
+  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$samples)
+  res <- motif_edger(
+    motif_obj = motif_obj,
+    sample_df = sample_df,
+    design_formula = "~ group",
+    coef = "groupg2",
+    merge_triplets = FALSE,
+    verbose = FALSE
+  )
+  expect_true("wedges" %in% names(res$results))
+  if (!is.null(res$results$wedges)) {
+    expect_true(all(grepl("^W_", res$results$wedges$motif)))
+  }
 })
 
 test_that("normalized counts follow motifs offsets", {

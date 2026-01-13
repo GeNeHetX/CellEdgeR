@@ -73,11 +73,16 @@ plot_motif_box <- function(norm_counts, motif_key, layer = NULL,
 #' @param motif_layer Layer for the motif key; when `NULL`, inferred from the motif prefix.
 #' @param cells_by_sample Optional named list of raw sample data frames; used only when \code{graph_obj}
 #'   lacks stored coordinates (backward compatibility with older objects).
+#' @param motif_node_size Size for nodes participating in the highlighted motif.
+#' @param dim_node_nonmotif Factor to shrink nodes that are not in the highlighted motif.
+#' @param alpha_node_nonmotif Alpha for nodes that are not in the highlighted motif.
+#' @param alpha_edge_nonmotif Alpha for edges that are not in the highlighted motif.
 #' @return A `ggplot` object.
 #' @export
 plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highlight_labels = NULL,
                               motif_key = NULL, motif_layer = NULL,
                               cells_by_sample = NULL,
+                              motif_node_size = 3,
                               dim_node_nonmotif = 0.6,
                               alpha_node_nonmotif = 0.4,
                               alpha_edge_nonmotif = 0.3) {
@@ -103,6 +108,7 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
   xy <- ps$xy
   motif_labels <- NULL
   motif_pairs <- NULL
+  nodes_in_motif <- rep(FALSE, nrow(ps$xy))
   if (!is.null(motif_key)) {
     infer_layer <- function(key) {
       prefix <- sub("_.*", "", key)
@@ -147,6 +153,11 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
     } else {
       highlight_edges <- la %in% motif_labels & lb %in% motif_labels
     }
+    if (any(highlight_edges)) {
+      nodes_in_motif[unique(c(edges[highlight_edges, 1], edges[highlight_edges, 2]))] <- TRUE
+    }
+  } else if (!is.null(motif_labels) && motif_layer == "size1") {
+    nodes_in_motif <- ps$labels_chr %in% motif_labels
   }
 
   edge_df <- if (length(edges)) {
@@ -177,8 +188,8 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
     ggplot2::geom_point(
       data = nodes,
       ggplot2::aes(x = x, y = y, color = label,
-                   size = dplyr::if_else(highlight, 1, dim_node_nonmotif),
-                   alpha = dplyr::if_else(highlight, 1, alpha_node_nonmotif))
+                   size = dplyr::if_else(nodes_in_motif, motif_node_size, dim_node_nonmotif),
+                   alpha = dplyr::if_else(nodes_in_motif, 1, alpha_node_nonmotif))
     ) +
     ggplot2::scale_size_identity(guide = "none") +
     ggplot2::scale_alpha_identity(guide = "none") +

@@ -37,17 +37,17 @@ library(CellEdgeR)
    )
    ```
 
-2. **Build graphs (validated) and count motifs in one clean flow**  
+2. **Build graphs, then count motifs (same object extended)**  
    ```r
    graphs <- build_cell_graphs(samples_list, n_cores = 4, verbose = TRUE)
    motifs <- count_motifs_graphs(
-     graph_obj = graphs,
+     graph_obj = graphs,      # or pass cells_by_sample directly
      max_edge_len = 50,       # set NA/NULL/<=0 to disable pruning
      include_wedges = TRUE,
      offset_pseudo = 0.5
    )
    ```
-   The returned `motifs` object contains raw counts (`counts`), exposures, offsets (`offsets`), and normalized counts (`norm_counts`, counts divided by the offsets). Motif names carry prefixes (`N_`, `E_`, `T_`, `W_`), so you can target motifs unambiguously, even when labels are numeric.
+   `build_cell_graphs()` returns a `cellEdgeR_obj` with per-sample Delaunay graphs. `count_motifs_graphs()` reuses that object and adds motif `counts`, `exposure`, `offsets`, `norm_counts`, and records the parameters used (`meta$max_edge_len`, `meta$include_wedges`, `meta$offset_pseudo`). Motif names carry prefixes (`N_`, `E_`, `T_`, `W_`, optionally `TW_`), so numeric labels won’t be mangled.
 
 3. **Fit differential models**
    ```r

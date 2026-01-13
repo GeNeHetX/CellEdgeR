@@ -55,7 +55,7 @@ validate_cells_by_sample <- function(cells_by_sample, max_labels = 100) {
 }
 
 validate_graph_obj <- function(graph_obj) {
-  if (!inherits(graph_obj, "cellEdgeR_graphs")) {
+  if (!inherits(graph_obj, "cellEdgeR_graphs") && !inherits(graph_obj, "cellEdgeR_obj")) {
     stop("graph_obj must come from build_cell_graphs().")
   }
   if (is.null(graph_obj$samples) || !length(graph_obj$samples)) stop("graph_obj has no samples.")
@@ -69,6 +69,9 @@ validate_graph_obj <- function(graph_obj) {
 validate_motif_obj <- function(motif_obj, require_offsets = TRUE) {
   if (!is.list(motif_obj) || is.null(motif_obj$counts)) {
     stop("motif_obj must be the list returned by count_motifs_graphs().")
+  }
+  if (!inherits(motif_obj, "cellEdgeR_obj")) {
+    stop("motif_obj must come from build_cell_graphs()/count_motifs_graphs().")
   }
   if (is.null(motif_obj$samples) || !length(motif_obj$samples)) {
     stop("motif_obj is missing sample identifiers.")
@@ -228,9 +231,14 @@ build_cell_graphs <- function(
       samples = samples,
       label_levels = lab_levels,
       lab_to_id = lab_to_id,
-      per_sample = per_sample
+      per_sample = per_sample,
+      counts = NULL,
+      exposure = NULL,
+      offsets = NULL,
+      norm_counts = NULL,
+      meta = list(max_edge_len = NA_real_, include_wedges = FALSE, offset_pseudo = NA_real_, built_from = "cells")
     ),
-    class = "cellEdgeR_graphs"
+    class = c("cellEdgeR_obj", "cellEdgeR_graphs")
   )
 }
 
@@ -285,19 +293,23 @@ count_motifs_graphs <- function(
     stop("Provide either cells_by_sample or graph_obj.")
   }
 
-  motif_obj <- count_motifs_from_graphs(
+  counts_obj <- count_motifs_from_graphs(
     graphs = graphs,
     max_edge_len = max_edge_len,
     include_wedges = include_wedges,
     verbose = verbose
   )
-  offsets <- compute_motif_offsets(motif_obj, offset_pseudo)
-  norm_counts <- normalize_counts_simple(motif_obj$counts, offsets)
+  offsets <- compute_motif_offsets(counts_obj, offset_pseudo)
+  norm_counts <- normalize_counts_simple(counts_obj$counts, offsets)
 
-  motif_obj$offsets <- offsets
-  motif_obj$norm_counts <- norm_counts
-  motif_obj$meta$offset_pseudo <- offset_pseudo
-  motif_obj
+  graphs$counts <- counts_obj$counts
+  graphs$exposure <- counts_obj$exposure
+  graphs$offsets <- offsets
+  graphs$norm_counts <- norm_counts
+  graphs$meta$max_edge_len <- max_edge_len
+  graphs$meta$include_wedges <- include_wedges
+  graphs$meta$offset_pseudo <- offset_pseudo
+  graphs
 }
 
 count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbose) {
@@ -862,6 +874,7 @@ motif_edger <- function(
   res1 <- fit_layer(Y1, log_cells)
   res2 <- fit_layer(Y2, off2)
   res3 <- fit_layer(Y3, off3)
+  resw <- if (!merge_triplets && !is.null(Yw)) fit_layer(Yw, offw) else NULL
 
   dag_result <- NULL
   if (fdr_method == "dagger") {
@@ -953,7 +966,9 @@ list(
     design = design,
     results = {
       ord <- function(df) if (is.null(df)) NULL else df[order(df$PValue), ]
-      list(size1 = ord(res1), size2 = ord(res2), size3 = ord(res3))
+      out <- list(size1 = ord(res1), size2 = ord(res2), size3 = ord(res3))
+      if (!is.null(resw)) out$wedges <- ord(resw)
+      out
     },
     dag = dag_result,
     fdr = fdr_meta
