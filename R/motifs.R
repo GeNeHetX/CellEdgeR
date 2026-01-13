@@ -160,7 +160,7 @@ filter_edges_by_threshold <- function(edges, lengths, threshold) {
 #'   and the third holds cell-type labels; column names are not required as long as the ordering is preserved.
 #' @param n_cores Parallelism hint; values greater than 1 trigger `parallel::mclapply` on Unix-alikes, while 1 runs sequentially.
 #' @param verbose Logical; print progress.
-#' @return A list of class \code{cellEdgeR_graphs} containing the sample names, global label set, and per-sample edges/labels.
+#' @return A cellgraph object (class `cellEdgeR_obj`) containing the sample names, global label set, and per-sample edges/labels. Motif slots (`counts`, `offsets`, etc.) are filled by [count_motifs_graphs()].
 #' @export
 build_cell_graphs <- function(
   cells_by_sample,
@@ -255,9 +255,10 @@ build_cell_graphs <- function(
 #' @param n_cores Parallelism hint; values greater than 1 trigger \code{parallel::mclapply} (Unix-alike only) when building graphs from raw samples.
 #' @param include_wedges Logical; if \code{TRUE}, returns open-triplet (wedge) counts alongside triangles.
 #' @param verbose Logical; print progress.
+#' @param offset_pseudo Small positive constant used inside offsets.
+#' @param max_labels Maximum allowed number of unique labels (guards against malformed inputs).
 #'
-#' @return A list with elements \code{samples}, \code{label_levels}, \code{counts} (sparse matrices for size1/2/3 plus optional wedges),
-#'   \code{exposure} (edge, triangle, cell, and optional wedge totals), and \code{meta} (parameters).
+#' @return A cellgraph object (class `cellEdgeR_obj`) with the original graph info plus motif `counts`, `exposure`, `offsets`, `norm_counts`, and `relative_counts` (log2 residuals from intercept-only edgeR fits).
 #' @examples
 #' demo <- list(
 #'   s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "A", "B")),
@@ -306,6 +307,7 @@ count_motifs_graphs <- function(
   graphs$exposure <- counts_obj$exposure
   graphs$offsets <- offsets
   graphs$norm_counts <- norm_counts
+  graphs$relative_counts <- compute_relative_counts(graphs, offset_pseudo, verbose = verbose)
   graphs$meta$max_edge_len <- max_edge_len
   graphs$meta$include_wedges <- include_wedges
   graphs$meta$offset_pseudo <- offset_pseudo
@@ -651,6 +653,48 @@ normalize_counts_simple <- function(counts, offsets) {
     size2 = norm_layer(counts$size2, offsets$size2),
     size3 = norm_layer(counts$size3, offsets$size3),
     wedges = if (!is.null(counts$wedges) && !is.null(offsets$wedges)) norm_layer(counts$wedges, offsets$wedges) else NULL
+  )
+}
+
+compute_relative_counts <- function(motif_obj, pseudo, verbose = FALSE, eps = 0.5) {
+  samples <- motif_obj$samples
+  offsets <- motif_obj$offsets
+  counts <- motif_obj$counts
+  design_null <- matrix(1, nrow = length(samples), ncol = 1)
+  colnames(design_null) <- "Intercept"
+
+  fit_layer <- function(Y, off) {
+    if (is.null(Y) || nrow(Y) == 0) {
+      return(Matrix::Matrix(0, nrow = 0, ncol = length(samples),
+        sparse = TRUE, dimnames = list(NULL, samples)))
+    }
+    if (ncol(Y) < 2) {
+      warning("Skipping model residuals for layer with <2 samples; returning zeros.")
+      return(Matrix::Matrix(0, nrow = nrow(Y), ncol = ncol(Y), sparse = TRUE, dimnames = dimnames(Y)))
+    }
+    dge <- edgeR::DGEList(counts = Y)
+    dge <- edgeR::calcNormFactors(dge)
+    dge$offset <- as.matrix(off)
+    dge <- tryCatch(edgeR::estimateDisp(dge, design = design_null), error = function(e) NULL)
+    if (is.null(dge)) {
+      warning("edgeR dispersion estimation failed for model residuals; returning zeros.")
+      return(Matrix::Matrix(0, nrow = nrow(Y), ncol = ncol(Y), sparse = TRUE, dimnames = dimnames(Y)))
+    }
+    fit <- tryCatch(edgeR::glmQLFit(dge, design = design_null), error = function(e) NULL)
+    if (is.null(fit)) {
+      warning("edgeR fit failed for model residuals; returning zeros.")
+      return(Matrix::Matrix(0, nrow = nrow(Y), ncol = ncol(Y), sparse = TRUE, dimnames = dimnames(Y)))
+    }
+    mu <- fit$fitted.values
+    obs <- as.matrix(Y)
+    Matrix::Matrix(log2(obs + eps) - log2(mu + eps), sparse = TRUE, dimnames = dimnames(Y))
+  }
+
+  list(
+    size1 = fit_layer(counts$size1, offsets$size1),
+    size2 = fit_layer(counts$size2, offsets$size2),
+    size3 = fit_layer(counts$size3, offsets$size3),
+    wedges = if (!is.null(counts$wedges) && !is.null(offsets$wedges)) fit_layer(counts$wedges, offsets$wedges) else NULL
   )
 }
 

@@ -47,7 +47,7 @@ library(CellEdgeR)
      offset_pseudo = 0.5
    )
    ```
-   `build_cell_graphs()` returns a `cellEdgeR_obj` with per-sample Delaunay graphs. `count_motifs_graphs()` reuses that object and adds motif `counts`, `exposure`, `offsets`, `norm_counts`, and records the parameters used (`meta$max_edge_len`, `meta$include_wedges`, `meta$offset_pseudo`). Motif names carry prefixes (`N_`, `E_`, `T_`, `W_`, optionally `TW_`), so numeric labels won’t be mangled.
+   `build_cell_graphs()` returns a cellgraph (class `cellEdgeR_obj`) with per-sample Delaunay graphs. `count_motifs_graphs()` reuses that object and adds motif `counts`, `exposure`, `offsets`, `norm_counts` (offset ratios), `relative_counts` (edgeR intercept-only log2 residuals), and records the parameters used (`meta$max_edge_len`, `meta$include_wedges`, `meta$offset_pseudo`). Motif names carry prefixes (`N_`, `E_`, `T_`, `W_`, optionally `TW_`), so numeric labels won’t be mangled.
 
 3. **Fit differential models**
    ```r

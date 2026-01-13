@@ -138,9 +138,18 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
     stringsAsFactors = FALSE
   )
   edges <- ps$edges
-  if (length(edges) && is.finite(max_edge_len)) {
-    keep <- ps$edge_len <= max_edge_len
-    edges <- edges[keep, , drop = FALSE]
+  if (length(edges)) {
+    cutoff <- if (is.finite(max_edge_len)) {
+      max_edge_len
+    } else if (!is.null(graph_obj$meta$max_edge_len) && is.finite(graph_obj$meta$max_edge_len)) {
+      graph_obj$meta$max_edge_len
+    } else {
+      Inf
+    }
+    if (is.finite(cutoff)) {
+      keep <- ps$edge_len <= cutoff
+      edges <- edges[keep, , drop = FALSE]
+    }
   }
 
   highlight_edges <- logical(nrow(edges))
