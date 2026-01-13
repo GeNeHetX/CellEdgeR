@@ -496,6 +496,18 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   n_edges <- vapply(per_sample, function(ps) nrow(ps$edges), 0L)
   names(n_edges) <- samples
   n_tris <- tri_totals
+  volumes <- matrix(0, nrow = length(lab_levels), ncol = length(samples),
+    dimnames = list(lab_levels, samples))
+  for (s in samples) {
+    ps <- per_sample[[s]]
+    if (nrow(ps$edges)) {
+      deg <- integer(ps$n)
+      tab <- table(ps$edges)
+      deg[as.integer(names(tab))] <- as.integer(tab)
+      vols <- tapply(deg, ps$labels_chr, sum)
+      volumes[names(vols), s] <- vols
+    }
+  }
 
   if (verbose) {
     summary_msg <- paste0(
@@ -510,6 +522,7 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   counts <- list(size1 = Y1, size2 = Y2, size3 = Y3)
   if (include_wedges) counts$wedges <- Yw
   exposure <- list(edges = n_edges, triangles = n_tris, cells = Matrix::colSums(Y1))
+  exposure$volumes <- volumes
   if (include_wedges) exposure$wedges <- wedge_totals
 
   list(
@@ -524,30 +537,29 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
 #' Build motif offsets for normalized counts and modeling
 #'
 #' @keywords internal
-build_pair_offsets <- function(Y2, Y1, log_edges, log_cells, pseudo) {
+build_pair_offsets <- function(Y2, log_vols, log_2m, pseudo) {
   if (nrow(Y2) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y2)))
   }
   ab <- split_pair_labels(rownames(Y2))
   a <- ab[, 1]
   b <- ab[, 2]
-  NA_ <- Matrix::Matrix(0, nrow = length(a), ncol = ncol(Y1), dimnames = list(rownames(Y2), colnames(Y1)))
-  NB_ <- Matrix::Matrix(0, nrow = length(b), ncol = ncol(Y1), dimnames = list(rownames(Y2), colnames(Y1)))
-  idx_a <- match(prefix_key(a, "N"), rownames(Y1))
-  idx_b <- match(prefix_key(b, "N"), rownames(Y1))
+  vol_a <- matrix(pseudo, nrow = length(a), ncol = ncol(log_vols), dimnames = list(rownames(Y2), colnames(log_vols)))
+  vol_b <- matrix(pseudo, nrow = length(b), ncol = ncol(log_vols), dimnames = list(rownames(Y2), colnames(log_vols)))
+  idx_a <- match(a, rownames(log_vols))
+  idx_b <- match(b, rownames(log_vols))
   sel_a <- which(!is.na(idx_a))
   sel_b <- which(!is.na(idx_b))
-  if (length(sel_a)) NA_[sel_a, ] <- as.matrix(Y1[idx_a[sel_a], , drop = FALSE])
-  if (length(sel_b)) NB_[sel_b, ] <- as.matrix(Y1[idx_b[sel_b], , drop = FALSE])
-  off <- log(pmax(NA_, pseudo)) + log(pmax(NB_, pseudo))
-  off <- sweep(off, 2, log_edges[colnames(Y2)], FUN = "-")
-  off <- sweep(off, 2, 2 * log_cells[colnames(Y2)], FUN = "-")
+  if (length(sel_a)) vol_a[sel_a, ] <- exp(log_vols[idx_a[sel_a], , drop = FALSE])
+  if (length(sel_b)) vol_b[sel_b, ] <- exp(log_vols[idx_b[sel_b], , drop = FALSE])
+  off <- log(pmax(vol_a, pseudo)) + log(pmax(vol_b, pseudo))
+  off <- sweep(off, 2, log_2m[colnames(Y2)], FUN = "-")
   dimnames(off) <- dimnames(Y2)
   off
 }
 
 #' @keywords internal
-build_tri_offsets <- function(Y3, Y2, log_tris, pseudo) {
+build_tri_offsets <- function(Y3, log_vols, log_2m, pseudo) {
   if (nrow(Y3) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y3)))
   }
@@ -555,21 +567,20 @@ build_tri_offsets <- function(Y3, Y2, log_tris, pseudo) {
   a <- abc[, 1]
   b <- abc[, 2]
   c <- abc[, 3]
-  ABk <- pair_key_vec(a, b, prefix = "E")
-  ACk <- pair_key_vec(a, c, prefix = "E")
-  BCk <- pair_key_vec(b, c, prefix = "E")
-  get_pair_mat <- function(keys) {
-    idx <- match(keys, rownames(Y2))
-    out <- matrix(0, nrow = length(keys), ncol = ncol(Y2), dimnames = list(keys, colnames(Y2)))
-    sel <- which(!is.na(idx))
-    if (length(sel)) out[sel, ] <- as.matrix(Y2[idx[sel], , drop = FALSE])
-    out
-  }
-  AB <- get_pair_mat(ABk)
-  AC <- get_pair_mat(ACk)
-  BC <- get_pair_mat(BCk)
-  off <- log(pmax(AB, pseudo)) + log(pmax(AC, pseudo)) + log(pmax(BC, pseudo))
-  off <- sweep(off, 2, log_tris[colnames(Y3)], FUN = "-")
+  vol_a <- matrix(pseudo, nrow = length(a), ncol = ncol(log_vols), dimnames = list(rownames(Y3), colnames(log_vols)))
+  vol_b <- matrix(pseudo, nrow = length(b), ncol = ncol(log_vols), dimnames = list(rownames(Y3), colnames(log_vols)))
+  vol_c <- matrix(pseudo, nrow = length(c), ncol = ncol(log_vols), dimnames = list(rownames(Y3), colnames(log_vols)))
+  idx_a <- match(a, rownames(log_vols))
+  idx_b <- match(b, rownames(log_vols))
+  idx_c <- match(c, rownames(log_vols))
+  sel_a <- which(!is.na(idx_a))
+  sel_b <- which(!is.na(idx_b))
+  sel_c <- which(!is.na(idx_c))
+  if (length(sel_a)) vol_a[sel_a, ] <- exp(log_vols[idx_a[sel_a], , drop = FALSE])
+  if (length(sel_b)) vol_b[sel_b, ] <- exp(log_vols[idx_b[sel_b], , drop = FALSE])
+  if (length(sel_c)) vol_c[sel_c, ] <- exp(log_vols[idx_c[sel_c], , drop = FALSE])
+  off <- log(pmax(vol_a, pseudo)) + log(pmax(vol_b, pseudo)) + log(pmax(vol_c, pseudo))
+  off <- sweep(off, 2, 2 * log_2m[colnames(Y3)], FUN = "-")
   dimnames(off) <- dimnames(Y3)
   off
 }
@@ -608,17 +619,9 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
   Y3 <- motif_obj$counts$size3
   Yw <- motif_obj$counts$wedges
 
-  log_cells_vec <- log(pmax(as.numeric(motif_obj$exposure$cells), 1))
-  names(log_cells_vec) <- samples
-  log_cells <- matrix(
-    log_cells_vec,
-    nrow = max(1, nrow(Y1)),
-    ncol = length(samples),
-    byrow = TRUE,
-    dimnames = list(rownames(Y1), samples)
-  )
-  log_edges <- log(pmax(as.numeric(motif_obj$exposure$edges), 1))
-  names(log_edges) <- samples
+  log_vols <- log(pmax(motif_obj$exposure$volumes, pseudo))
+  log_2m <- log(pmax(2 * as.numeric(motif_obj$exposure$edges), 1))
+  names(log_2m) <- samples
   log_tris <- log(pmax(as.numeric(motif_obj$exposure$triangles), 1))
   names(log_tris) <- samples
   log_wedges <- NULL
@@ -627,12 +630,19 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
     names(log_wedges) <- samples
   }
 
-  offset2 <- build_pair_offsets(Y2, Y1, log_edges, log_cells_vec, pseudo)
-  offset3 <- build_tri_offsets(Y3, Y2, log_tris, pseudo)
+  offset2 <- build_pair_offsets(Y2, log_vols, log_2m, pseudo)
+  offset3 <- build_tri_offsets(Y3, log_vols, log_2m, pseudo)
   offsetw <- NULL
   if (!is.null(Yw)) {
     offsetw <- build_wedge_offsets(Yw, Y2, log_wedges, pseudo)
   }
+  log_cells <- matrix(
+    log(pmax(as.numeric(motif_obj$exposure$cells), 1)),
+    nrow = max(1, nrow(Y1)),
+    ncol = length(samples),
+    byrow = TRUE,
+    dimnames = list(rownames(Y1), samples)
+  )
   list(
     size1 = Matrix::Matrix(log_cells, sparse = TRUE, dimnames = dimnames(Y1)),
     size2 = Matrix::Matrix(offset2, sparse = TRUE, dimnames = dimnames(Y2)),
