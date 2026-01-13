@@ -2,23 +2,34 @@
 #'
 #' Visualize normalized motif counts (e.g., from [normalize_motif_counts()]) across samples for a given motif.
 #'
-#' @param norm_counts List returned by [normalize_motif_counts()].
-#' @param motif_key Character motif identifier (e.g., `"A_B_C"`).
-#' @param layer Which layer to plot; one of `"size1"`, `"size2"`, `"size3"`, or `"wedges"` if present.
+#' @param norm_counts List of normalized counts (e.g., `motif_obj$norm_counts` from [count_motifs_graphs()]).
+#' @param motif_key Character motif identifier with prefix (e.g., `"E_A_B"`).
+#' @param layer Which layer to plot; when `NULL`, inferred from the motif prefix (`N_`, `E_`, `T_`, `W_`, or `TW_`).
 #' @param sample_df Optional data frame of sample metadata; rownames must match the motif columns.
 #' @param group_var Optional column name in `sample_df` to use for grouping/coloring the boxplot.
 #' @return A `ggplot` object.
 #' @export
-plot_motif_box <- function(norm_counts, motif_key, layer = c("size3", "size2", "size1", "wedges"),
+plot_motif_box <- function(norm_counts, motif_key, layer = NULL,
                            sample_df = NULL, group_var = NULL) {
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
     stop("Package ggplot2 is required for plotting. Install it with install.packages('ggplot2').")
   }
   if (!is.list(norm_counts)) {
-    stop("norm_counts must be the list returned by normalize_motif_counts().")
+    stop("norm_counts must be the list returned by count_motifs_graphs()$norm_counts or similar.")
   }
-  layer <- match.arg(layer, several.ok = FALSE)
-  if (is.null(norm_counts[[layer]])) stop("Layer ", layer, " not found in norm_counts.")
+  infer_layer <- function(key) {
+    prefix <- sub("_.*", "", key)
+    switch(prefix,
+      N = "size1",
+      E = "size2",
+      T = "size3",
+      W = "wedges",
+      TW = "size3",
+      stop("Cannot infer motif layer from key: ", key)
+    )
+  }
+  if (is.null(layer)) layer <- infer_layer(motif_key)
+  if (length(layer) != 1 || !layer %in% names(norm_counts)) stop("Layer ", layer, " not found in norm_counts.")
   mat <- norm_counts[[layer]]
   if (!motif_key %in% rownames(mat)) stop("Motif key not found in layer ", layer, ".")
   vals <- as.numeric(mat[motif_key, ])
@@ -57,16 +68,19 @@ plot_motif_box <- function(norm_counts, motif_key, layer = c("size3", "size2", "
 #' @param sample_id Sample name to plot.
 #' @param max_edge_len Optional numeric threshold to prune long edges for display; set `Inf` to keep all.
 #' @param highlight_labels Optional character vector of labels to emphasize.
-#' @param motif_key Optional motif identifier (e.g., `"A_B_C"`); when provided, the labels in the key
+#' @param motif_key Optional motif identifier (e.g., `"E_A_B"`); when provided, the labels in the key
 #'   are highlighted and edges connecting those labels are accentuated.
-#' @param motif_layer Layer for the motif key; one of `"size3"`, `"size2"`, `"size1"`, or `"wedges"`.
+#' @param motif_layer Layer for the motif key; when `NULL`, inferred from the motif prefix.
 #' @param cells_by_sample Optional named list of raw sample data frames; used only when \code{graph_obj}
 #'   lacks stored coordinates (backward compatibility with older objects).
 #' @return A `ggplot` object.
 #' @export
 plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highlight_labels = NULL,
-                              motif_key = NULL, motif_layer = c("size3", "size2", "size1", "wedges"),
-                              cells_by_sample = NULL) {
+                              motif_key = NULL, motif_layer = NULL,
+                              cells_by_sample = NULL,
+                              dim_node_nonmotif = 0.6,
+                              alpha_node_nonmotif = 0.4,
+                              alpha_edge_nonmotif = 0.3) {
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
     stop("Package ggplot2 is required for plotting. Install it with install.packages('ggplot2').")
   }
@@ -87,16 +101,28 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
     }
   }
   xy <- ps$xy
-  motif_layer <- match.arg(motif_layer)
   motif_labels <- NULL
   motif_pairs <- NULL
   if (!is.null(motif_key)) {
-    motif_labels <- strsplit(motif_key, "_")[[1]]
+    infer_layer <- function(key) {
+      prefix <- sub("_.*", "", key)
+      switch(prefix,
+        N = "size1",
+        E = "size2",
+        T = "size3",
+        W = "wedges",
+        TW = "size3",
+        stop("Cannot infer motif layer from key: ", key)
+      )
+    }
+    if (is.null(motif_layer)) motif_layer <- infer_layer(motif_key)
+    motif_labels <- strsplit(sub("^[^_]+_", "", motif_key), "_")[[1]]
     if (motif_layer == "size2") {
       motif_pairs <- paste(sort(motif_labels[seq_len(min(2, length(motif_labels)))]), collapse = "_")
     }
     highlight_labels <- unique(c(highlight_labels, motif_labels))
   }
+  if (is.null(motif_layer)) motif_layer <- "size3"
 
   nodes <- data.frame(
     x = xy[, 1],
@@ -139,7 +165,7 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
       ggplot2::aes(x = x1, y = y1, xend = x2, yend = y2),
       color = "#9aa5b1",
       linewidth = 0.3,
-      alpha = 0.5
+      alpha = alpha_edge_nonmotif
     ) +
     ggplot2::geom_segment(
       data = edge_df[highlight_edges, , drop = FALSE],
@@ -150,10 +176,12 @@ plot_sample_graph <- function(graph_obj, sample_id, max_edge_len = Inf, highligh
     ) +
     ggplot2::geom_point(
       data = nodes,
-      ggplot2::aes(x = x, y = y, color = label, size = highlight, alpha = highlight)
+      ggplot2::aes(x = x, y = y, color = label,
+                   size = dplyr::if_else(highlight, 1, dim_node_nonmotif),
+                   alpha = dplyr::if_else(highlight, 1, alpha_node_nonmotif))
     ) +
-    ggplot2::scale_size_manual(values = c(`FALSE` = 1.8, `TRUE` = 3), guide = "none") +
-    ggplot2::scale_alpha_manual(values = c(`FALSE` = 0.7, `TRUE` = 1), guide = "none") +
+    ggplot2::scale_size_identity(guide = "none") +
+    ggplot2::scale_alpha_identity(guide = "none") +
     ggplot2::ggtitle(paste0("Sample ", sample_id, " graph")) +
     ggplot2::theme_minimal() +
     ggplot2::theme(legend.position = "right")

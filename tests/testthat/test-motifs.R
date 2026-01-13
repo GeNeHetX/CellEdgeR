@@ -10,18 +10,18 @@ test_that("motif counting returns expected shapes and counts", {
   expect_equal(res$samples, c("s1", "s2"))
 
   y1 <- as.matrix(res$counts$size1)
-  expect_equal(drop(y1["A", "s1"]), 2)
-  expect_equal(drop(y1["B", "s2"]), 2)
+  expect_equal(drop(y1["N_A", "s1"]), 2)
+  expect_equal(drop(y1["N_B", "s2"]), 2)
 
   y2 <- as.matrix(res$counts$size2)
-  expect_equal(drop(y2["A_A", "s1"]), 1)
-  expect_equal(drop(y2["A_B", "s1"]), 2)
-  expect_equal(drop(y2["A_B", "s2"]), 2)
-  expect_equal(drop(y2["B_B", "s2"]), 1)
+  expect_equal(drop(y2["E_A_A", "s1"]), 1)
+  expect_equal(drop(y2["E_A_B", "s1"]), 2)
+  expect_equal(drop(y2["E_A_B", "s2"]), 2)
+  expect_equal(drop(y2["E_B_B", "s2"]), 1)
 
   y3 <- as.matrix(res$counts$size3)
-  expect_equal(drop(y3["A_A_B", "s1"]), 1)
-  expect_equal(drop(y3["A_B_B", "s2"]), 1)
+  expect_equal(drop(y3["T_A_A_B", "s1"]), 1)
+  expect_equal(drop(y3["T_A_B_B", "s2"]), 1)
 
   expect_equal(res$exposure$edges, c(s1 = 3, s2 = 3))
   expect_equal(res$exposure$triangles, c(s1 = 1, s2 = 1))
@@ -39,8 +39,8 @@ test_that("wedges can be returned alongside triangles", {
   res <- count_motifs_graphs(cells, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
 
   expect_named(res$counts, c("size1", "size2", "size3", "wedges"))
-  expect_setequal(rownames(res$counts$wedges), c("A_A_C", "B_A_C"))
-  expect_equal(drop(as.matrix(res$counts$wedges)["B_A_C", "s1"]), 1)
+  expect_setequal(rownames(res$counts$wedges), c("W_A_A_C", "W_B_A_C"))
+  expect_equal(drop(as.matrix(res$counts$wedges)["W_B_A_C", "s1"]), 1)
   expect_equal(res$exposure$wedges, c(s1 = 2))
 })
 
@@ -104,7 +104,7 @@ test_that("normalized counts follow motifs offsets", {
     s2 = data.frame(x = c(0, 2, 0), y = c(0, 0, 2), label = c("A", "B", "B"))
   )
   motif_obj <- count_motifs_graphs(cells, max_edge_len = 3, verbose = FALSE)
-  norm <- normalize_motif_counts(motif_obj, pseudo = 0.5)
+  norm <- motif_obj$norm_counts
 
   expected_cells <- matrix(
     log(pmax(as.numeric(motif_obj$exposure$cells), 1)),
@@ -114,18 +114,6 @@ test_that("normalized counts follow motifs offsets", {
     dimnames = list(rownames(motif_obj$counts$size1), motif_obj$samples)
   )
   expect_equal(as.matrix(norm$size1), as.matrix(motif_obj$counts$size1) / exp(expected_cells))
-})
-
-test_that("normalize_motif_counts can return likelihood ratios", {
-  cells <- list(
-    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "A", "B")),
-    s2 = data.frame(x = c(0, 2, 0), y = c(0, 0, 2), label = c("A", "B", "B"))
-  )
-  motif_obj <- count_motifs_graphs(cells, max_edge_len = 3, verbose = FALSE)
-  norm <- normalize_motif_counts(motif_obj, pseudo = 0.5, return_lr = TRUE)
-  expect_true(is.list(norm))
-  expect_equal(dim(norm$size3), dim(motif_obj$counts$size3))
-  expect_true(all(is.finite(as.matrix(norm$size3))))
 })
 
 test_that("geometry-based triangulation tolerates duplicated and collinear points", {

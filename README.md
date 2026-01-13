@@ -2,7 +2,7 @@
 Differential analysis of cell-type interaction motifs built from spatial coordinates.
 
 ## Overview
-`CellEdgeR` builds spatial graphs via Delaunay triangulation, counts cell-type motifs (single cells, edges, triangles, and optional wedges), and finally fits edgeR models to test for differential motif enrichment. The workflow separates graph construction from the motif counting/fitting steps so you can experiment with pruning thresholds without repeatedly triangulating the raw samples.
+`CellEdgeR` builds spatial graphs via Delaunay triangulation, counts cell-type motifs (single cells, edges, triangles, and optional wedges), and finally fits edgeR models to test for differential motif enrichment. The workflow separates graph construction from the motif counting/fitting steps so you can experiment with pruning thresholds without repeatedly triangulating the raw samples. Motif names are prefixed by layer for clarity: `N_` (nodes), `E_` (edges), `T_` (triangles), `W_` (wedges), and optionally `TW_` when triangles/wedges are merged for modeling.
 
 ## Installation
 Add the package dependencies before installing `CellEdgeR`:
@@ -19,9 +19,9 @@ devtools::install_github("GeNeHetX/CellEdgeR")
 library(CellEdgeR)
 ```
 
-## Typical workflow
+## Typical workflow (two simple steps)
 1. **Prepare your data**  
-   Provide a *named* list of samples where each element is a data frame with numeric `x`, `y` coordinates in the first two columns and a label vector (cell type, cluster, etc.) in the third column.
+   Provide a *named* list of samples where each element is a data frame with numeric `x`, `y` coordinates in the first two columns and a label vector (cell type, cluster, etc.) in the third column. The helper validates structure, numeric coords, non-NA labels, and caps unique labels (default 100) with clear errors if not met.
 
    To generate a quick synthetic dataset for testing, call the helper bundled with the package:
 
@@ -37,70 +37,44 @@ library(CellEdgeR)
    )
    ```
 
-2. **Build the intact graphs**  
+2. **Build graphs (validated) and count motifs in one clean flow**  
    ```r
    graphs <- build_cell_graphs(samples_list, n_cores = 4, verbose = TRUE)
-   ```  
-   This step can take some time for large datasets; the triangulations are stored in the returned object so you can repeatedly prune edges or recompute motifs without rebuilding. Keep `verbose = TRUE` to monitor progress.
+   motifs <- count_motifs_graphs(
+     graph_obj = graphs,
+     max_edge_len = 50,       # set NA/NULL/<=0 to disable pruning
+     include_wedges = TRUE,
+     offset_pseudo = 0.5
+   )
+   ```
+   The returned `motifs` object contains raw counts (`counts`), exposures, offsets (`offsets`), and normalized counts (`norm_counts`, counts divided by the offsets). Motif names carry prefixes (`N_`, `E_`, `T_`, `W_`), so you can target motifs unambiguously, even when labels are numeric.
 
-3. **Count motifs with optional pruning (choose `max_edge_len`)**  
-   Before pruning, inspect edge lengths from `build_cell_graphs()` to identify a cutoff that removes the long, likely spurious edges while keeping the bulk of neighbors. Example analysis is shown in the next section.
-   ```r
-   motifs <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 50, include_wedges = TRUE)
-   ```  
-   Set `max_edge_len` to `NA`/`NULL`/`<= 0` to skip pruning. Use the stored `graph_obj` to avoid rerunning the expensive triangulation.
-
-4. **Fit differential models**
+3. **Fit differential models**
    ```r
    results <- motif_edger(
      motif_obj = motifs,
-     sample_df = metadata_df,  # data frame with sample metadata (rownames = sample IDs)
+     sample_df = metadata_df,  # rownames must match sample IDs
      design_formula = "~ condition + batch",
-     coef = "conditiontreated"
+     coef_variable = "condition",   # which variable
+     coef_level    = "treated",     # which level (optional)
+     merge_triplets = FALSE         # set TRUE to merge triangles+wedges as TW_*
    )
-   ```  
-   Provide sample metadata (rownames matching the sample IDs) and specify the model terms you want to test. Choose `fdr_method = "dagger"` only if you require the hierarchical DAG correction; otherwise the default BH correction is applied per layer.
-
-5. **Visualize motifs (optional)**  
-   <!-- - Boxplot of normalized counts for a specific motif across samples (grouped by condition):  
-     ```r
-     norm <- normalize_motif_counts(motifs, pseudo = 0.5)
-     plot_motif_box(norm, motif_key = "a_a_b", layer = "size3", sample_df = metadata_df, group_var = "condition")
-     ```
-     Or switch to likelihood ratios instead of normalized counts:
-     ```r
-     lr <- normalize_motif_counts(motifs, pseudo = 0.5, return_lr = TRUE)
-     plot_motif_box(lr, motif_key = "a_a_b", layer = "size3", sample_df = metadata_df, group_var = "condition")
-     ```
-   Or use a custom plot -->
-   Use a custom plot
-   ```r
-   library(ggpubr)
-      
-   normcnt <- edgeRnorm_motif_counts(motifs)
-   mergedf3=data.frame((t(as.matrix(normcnt$size3))[rownames(metadata_df),]),metadata_df)
-   ggboxplot(mergedf3,x="batch",fill="condition",y="a_a_b")
-
-
-
    ```
+   BH correction is applied per layer by default; `fdr_method = "dagger"` adds the DAG-based filter. Offsets are reused from the `motif_obj` so testing is consistent with normalization.
 
-   - Plot a sample graph and highlight a motif (nodes and edges). If your `graph_obj` was built with an older CellEdgeR that did not store coordinates, also pass the original `cells_by_sample` list:  
+4. **Visualize motifs (optional)**  
+   - Boxplot a normalized motif across samples (prefix inferred):  
      ```r
-     plot_sample_graph(graphs, sample_id = "s1", max_edge_len = 50,
-                       motif_key = "a_a_b", motif_layer = "size3",
-                       cells_by_sample = samples_list)
-
-
+     plot_motif_box(motifs$norm_counts, motif_key = "T_A_A_B", sample_df = metadata_df, group_var = "condition")
      ```
-     - Or plot multiple ones:
+   - Plot a sample graph and highlight a motif (lighter/smaller non-motif nodes/edges are adjustable):  
      ```r
-     library(ggpubr)
-      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a_a_b", motif_layer = "size3"))
-
-      ggarrange(plotlist=lapply(paste0("s",c(1:3,22:24)),plot_sample_graph,graph_obj=graphs, max_edge_len = 50,motif_key = "a_a", motif_layer = "size2"))
-
-      ```
+     plot_sample_graph(
+       graphs, sample_id = "s1", max_edge_len = 50,
+       motif_key = "T_A_A_B",
+       dim_node_nonmotif = 0.5, alpha_node_nonmotif = 0.3, alpha_edge_nonmotif = 0.25
+     )
+     ```
 
 ## Choosing a pruning threshold
 The `max_edge_len` threshold in the workflow above controls which Delaunay edges are retained before motif counting. To pick a sensible cutoff, inspect the edge-length distribution from the built graphs and pick a value that removes the sparse tails while leaving the bulk of biologically relevant neighbors intact.

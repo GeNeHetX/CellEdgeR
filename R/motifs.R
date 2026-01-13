@@ -22,6 +22,65 @@ standardize_sample_df <- function(sample_df, sample_name) {
   )
 }
 
+validate_cells_by_sample <- function(cells_by_sample, max_labels = 100) {
+  if (!is.list(cells_by_sample) || length(cells_by_sample) == 0) {
+    stop("cells_by_sample must be a non-empty *named* list of data frames.")
+  }
+  samples <- names(cells_by_sample)
+  if (is.null(samples) || anyNA(samples) || any(samples == "")) {
+    stop("cells_by_sample must have non-empty, non-NA names for each sample.")
+  }
+  if (anyDuplicated(samples)) stop("cells_by_sample sample names must be unique.")
+  cells_standard <- stats::setNames(
+    lapply(samples, function(s) {
+      df <- cells_by_sample[[s]]
+      if (!is.data.frame(df)) stop("Sample '", s, "' is not a data.frame.")
+      df_std <- standardize_sample_df(df, s)
+      if (nrow(df_std) == 0) {
+        warning("Sample '", s, "' has zero rows; it will be kept but contributes no motifs.")
+      }
+      if (any(!is.finite(df_std$x) | !is.finite(df_std$y))) {
+        stop("Sample '", s, "' has non-finite coordinates.")
+      }
+      if (anyNA(df_std$label)) stop("Sample '", s, "' has NA labels.")
+      df_std
+    }),
+    samples
+  )
+  all_labels <- unlist(lapply(cells_standard, function(d) as.character(d$label)), use.names = FALSE)
+  if (length(unique(all_labels)) > max_labels) {
+    stop("Too many unique labels (", length(unique(all_labels)), "); max allowed is ", max_labels, ".")
+  }
+  cells_standard
+}
+
+validate_graph_obj <- function(graph_obj) {
+  if (!inherits(graph_obj, "cellEdgeR_graphs")) {
+    stop("graph_obj must come from build_cell_graphs().")
+  }
+  if (is.null(graph_obj$samples) || !length(graph_obj$samples)) stop("graph_obj has no samples.")
+  if (anyDuplicated(graph_obj$samples)) stop("graph_obj samples must be unique.")
+  if (!is.list(graph_obj$per_sample)) stop("graph_obj$per_sample must be a list.")
+  missing <- setdiff(graph_obj$samples, names(graph_obj$per_sample))
+  if (length(missing)) stop("graph_obj missing per-sample entries: ", paste(missing, collapse = ", "))
+  invisible(TRUE)
+}
+
+validate_motif_obj <- function(motif_obj, require_offsets = TRUE) {
+  if (!is.list(motif_obj) || is.null(motif_obj$counts)) {
+    stop("motif_obj must be the list returned by count_motifs_graphs().")
+  }
+  if (is.null(motif_obj$samples) || !length(motif_obj$samples)) {
+    stop("motif_obj is missing sample identifiers.")
+  }
+  if (!is.list(motif_obj$counts)) stop("motif_obj$counts must be a list of sparse matrices.")
+  if (is.null(motif_obj$exposure)) stop("motif_obj is missing exposure totals.")
+  if (require_offsets && is.null(motif_obj$offsets)) {
+    stop("motif_obj is missing offsets; rerun count_motifs_graphs() to compute them.")
+  }
+  invisible(TRUE)
+}
+
 empty_edge_result <- function() {
   list(edges = matrix(numeric(0), ncol = 2, dimnames = list(NULL, c("from", "to"))), edge_len = numeric(0))
 }
@@ -50,12 +109,35 @@ build_delaunay_edges <- function(df, verbose = FALSE) {
   list(edges = edges, edge_len = len)
 }
 
-format_label_triplets <- function(keys, lab_levels) {
+format_label_triplets <- function(keys, lab_levels, prefix = NULL) {
   if (!length(keys)) return(character(0))
   keys <- gsub("\\|", "_", keys)
   ids_mat <- do.call(rbind, strsplit(keys, "_"))
   lab_mat <- matrix(lab_levels[as.integer(ids_mat)], ncol = ncol(ids_mat))
-  apply(lab_mat, 1, function(v) paste(v, collapse = "_"))
+  base <- apply(lab_mat, 1, function(v) paste(v, collapse = "_"))
+  if (!is.null(prefix)) paste0(prefix, "_", base) else base
+}
+
+prefix_key <- function(labels, prefix) paste0(prefix, "_", labels)
+
+strip_prefix <- function(keys) sub("^[^_]+_", "", keys)
+
+pair_key_vec <- function(u, v, prefix = "E") {
+  idx <- u <= v
+  out <- character(length(u))
+  out[idx] <- paste(u[idx], v[idx], sep = "_")
+  out[!idx] <- paste(v[!idx], u[!idx], sep = "_")
+  paste0(prefix, "_", out)
+}
+
+split_pair_labels <- function(keys) {
+  ab <- strsplit(strip_prefix(keys), "_")
+  do.call(rbind, ab)
+}
+
+split_triplet_labels <- function(keys) {
+  abc <- strsplit(strip_prefix(keys), "_")
+  do.call(rbind, abc)
 }
 
 filter_edges_by_threshold <- function(edges, lengths, threshold) {
@@ -80,20 +162,15 @@ filter_edges_by_threshold <- function(edges, lengths, threshold) {
 build_cell_graphs <- function(
   cells_by_sample,
   n_cores = 1,
-  verbose = TRUE
+  verbose = TRUE,
+  max_labels = 100
 ) {
   if (!requireNamespace("geometry", quietly = TRUE)) {
     stop("Package geometry is required. Install it with install.packages('geometry').")
   }
-  samples <- names(cells_by_sample)
-  if (is.null(samples) || length(samples) == 0) stop("cells_by_sample must be a *named* list.")
+  cells_standard <- validate_cells_by_sample(cells_by_sample, max_labels = max_labels)
+  samples <- names(cells_standard)
   if (verbose) message("Samples: ", paste(samples, collapse = ", "))
-
-  if (verbose) message("Standardizing sample frames (columns 1/2 as coords, 3 as labels)…")
-  cells_standard <- stats::setNames(
-    lapply(samples, function(s) standardize_sample_df(cells_by_sample[[s]], s)),
-    samples
-  )
 
   all_labels_chr <- unlist(
     lapply(cells_standard, function(d) as.character(d$label)),
@@ -190,29 +267,37 @@ count_motifs_graphs <- function(
   max_edge_len = NA_real_,
   n_cores = 1,
   include_wedges = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  offset_pseudo = 0.5,
+  max_labels = 100
 ) {
   graphs <- NULL
   if (!is.null(graph_obj)) {
-    if (!inherits(graph_obj, "cellEdgeR_graphs")) {
-      stop("graph_obj must come from build_cell_graphs().")
-    }
+    validate_graph_obj(graph_obj)
     graphs <- graph_obj
   } else if (!is.null(cells_by_sample) && inherits(cells_by_sample, "cellEdgeR_graphs")) {
+    validate_graph_obj(cells_by_sample)
     graphs <- cells_by_sample
     cells_by_sample <- NULL
   } else if (!is.null(cells_by_sample)) {
-    graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = verbose)
+    graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = verbose, max_labels = max_labels)
   } else {
     stop("Provide either cells_by_sample or graph_obj.")
   }
 
-  count_motifs_from_graphs(
+  motif_obj <- count_motifs_from_graphs(
     graphs = graphs,
     max_edge_len = max_edge_len,
     include_wedges = include_wedges,
     verbose = verbose
   )
+  offsets <- compute_motif_offsets(motif_obj, offset_pseudo)
+  norm_counts <- normalize_counts_simple(motif_obj$counts, offsets)
+
+  motif_obj$offsets <- offsets
+  motif_obj$norm_counts <- norm_counts
+  motif_obj$meta$offset_pseudo <- offset_pseudo
+  motif_obj
 }
 
 count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbose) {
@@ -249,11 +334,11 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   sing_list <- lapply(per_sample, function(ps) {
     if (ps$n == 0) return(integer(0))
     tab <- tabulate(ps$labels_id, nbins = K)
-    names(tab) <- lab_levels
+    names(tab) <- prefix_key(lab_levels, "N")
     tab
   })
   Y1 <- do.call(cbind, sing_list)
-  dimnames(Y1) <- list(lab_levels, samples)
+  dimnames(Y1) <- list(prefix_key(lab_levels, "N"), samples)
   Y1 <- Matrix::Matrix(Y1, sparse = TRUE)
 
   if (verbose) message("Counting size-2 (edges by unordered label pair)…")
@@ -268,7 +353,7 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
     }
     la <- ps$labels_chr[e[, 1]]
     lb <- ps$labels_chr[e[, 2]]
-    key <- ifelse(la <= lb, paste(la, lb, sep = "_"), paste(lb, la, sep = "_"))
+    key <- pair_key_vec(la, lb, prefix = "E")
     pairs_by_sample[[s]] <- sort(tapply(rep(1L, length(key)), key, sum))
   }
   pairs_all_keys <- unique(unlist(lapply(pairs_by_sample, names), use.names = FALSE))
@@ -367,7 +452,7 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
     )
     keys <- as.character(out$keys)
     if (length(keys)) {
-      keys_lab <- format_label_triplets(keys, lab_levels)
+      keys_lab <- format_label_triplets(keys, lab_levels, prefix = "T")
       tris_counts_list[[s]] <- structure(as.integer(out$counts), names = keys_lab)
     } else {
       tris_counts_list[[s]] <- integer(0)
@@ -376,7 +461,7 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
     if (include_wedges) {
       wedge_keys <- as.character(out$wedge_keys)
       if (length(wedge_keys)) {
-        wedge_lab <- format_label_triplets(wedge_keys, lab_levels)
+        wedge_lab <- format_label_triplets(wedge_keys, lab_levels, prefix = "W")
         wedge_counts_list[[s]] <- structure(as.integer(out$wedge_counts), names = wedge_lab)
       } else {
         wedge_counts_list[[s]] <- integer(0)
@@ -425,23 +510,24 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
 #' Build motif offsets for normalized counts and modeling
 #'
 #' @keywords internal
-build_pair_offsets <- function(Y2, Y1, log_edges, pseudo) {
+build_pair_offsets <- function(Y2, Y1, log_edges, log_cells, pseudo) {
   if (nrow(Y2) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y2)))
   }
-  ab <- do.call(rbind, strsplit(rownames(Y2), "_"))
+  ab <- split_pair_labels(rownames(Y2))
   a <- ab[, 1]
   b <- ab[, 2]
   NA_ <- Matrix::Matrix(0, nrow = length(a), ncol = ncol(Y1), dimnames = list(rownames(Y2), colnames(Y1)))
   NB_ <- Matrix::Matrix(0, nrow = length(b), ncol = ncol(Y1), dimnames = list(rownames(Y2), colnames(Y1)))
-  idx_a <- match(a, rownames(Y1))
-  idx_b <- match(b, rownames(Y1))
+  idx_a <- match(prefix_key(a, "N"), rownames(Y1))
+  idx_b <- match(prefix_key(b, "N"), rownames(Y1))
   sel_a <- which(!is.na(idx_a))
   sel_b <- which(!is.na(idx_b))
   if (length(sel_a)) NA_[sel_a, ] <- as.matrix(Y1[idx_a[sel_a], , drop = FALSE])
   if (length(sel_b)) NB_[sel_b, ] <- as.matrix(Y1[idx_b[sel_b], , drop = FALSE])
   off <- log(pmax(NA_, pseudo)) + log(pmax(NB_, pseudo))
-  off <- sweep(off, 2, log_edges[colnames(Y2)], FUN = "+")
+  off <- sweep(off, 2, log_edges[colnames(Y2)], FUN = "-")
+  off <- sweep(off, 2, 2 * log_cells[colnames(Y2)], FUN = "-")
   dimnames(off) <- dimnames(Y2)
   off
 }
@@ -451,20 +537,13 @@ build_tri_offsets <- function(Y3, Y2, log_tris, pseudo) {
   if (nrow(Y3) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Y3)))
   }
-  abc <- do.call(rbind, strsplit(rownames(Y3), "_"))
+  abc <- split_triplet_labels(rownames(Y3))
   a <- abc[, 1]
   b <- abc[, 2]
   c <- abc[, 3]
-  pair_key_vec <- function(u, v) {
-    idx <- u <= v
-    out <- character(length(u))
-    out[idx] <- paste(u[idx], v[idx], sep = "_")
-    out[!idx] <- paste(v[!idx], u[!idx], sep = "_")
-    out
-  }
-  ABk <- pair_key_vec(a, b)
-  ACk <- pair_key_vec(a, c)
-  BCk <- pair_key_vec(b, c)
+  ABk <- pair_key_vec(a, b, prefix = "E")
+  ACk <- pair_key_vec(a, c, prefix = "E")
+  BCk <- pair_key_vec(b, c, prefix = "E")
   get_pair_mat <- function(keys) {
     idx <- match(keys, rownames(Y2))
     out <- matrix(0, nrow = length(keys), ncol = ncol(Y2), dimnames = list(keys, colnames(Y2)))
@@ -476,8 +555,35 @@ build_tri_offsets <- function(Y3, Y2, log_tris, pseudo) {
   AC <- get_pair_mat(ACk)
   BC <- get_pair_mat(BCk)
   off <- log(pmax(AB, pseudo)) + log(pmax(AC, pseudo)) + log(pmax(BC, pseudo))
-  off <- sweep(off, 2, log_tris[colnames(Y3)], FUN = "+")
+  off <- sweep(off, 2, log_tris[colnames(Y3)], FUN = "-")
   dimnames(off) <- dimnames(Y3)
+  off
+}
+
+build_wedge_offsets <- function(Yw, Y2, log_wedges, pseudo) {
+  if (is.null(log_wedges) || nrow(Yw) == 0) {
+    return(matrix(numeric(0), nrow = 0L, ncol = ncol(Yw)))
+  }
+  abc <- split_triplet_labels(rownames(Yw))
+  a <- abc[, 1]
+  b <- abc[, 2]
+  c <- abc[, 3]
+  ABk <- pair_key_vec(a, b, prefix = "E")
+  ACk <- pair_key_vec(a, c, prefix = "E")
+  BCk <- pair_key_vec(b, c, prefix = "E")
+  get_pair_mat <- function(keys) {
+    idx <- match(keys, rownames(Y2))
+    out <- matrix(0, nrow = length(keys), ncol = ncol(Y2), dimnames = list(keys, colnames(Y2)))
+    sel <- which(!is.na(idx))
+    if (length(sel)) out[sel, ] <- as.matrix(Y2[idx[sel], , drop = FALSE])
+    out
+  }
+  AB <- get_pair_mat(ABk)
+  AC <- get_pair_mat(ACk)
+  BC <- get_pair_mat(BCk)
+  off <- log(pmax(AB, pseudo)) + log(pmax(AC, pseudo)) + log(pmax(BC, pseudo))
+  off <- sweep(off, 2, log_wedges[colnames(Yw)], FUN = "-")
+  dimnames(off) <- dimnames(Yw)
   off
 }
 
@@ -486,9 +592,12 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
   Y1 <- motif_obj$counts$size1
   Y2 <- motif_obj$counts$size2
   Y3 <- motif_obj$counts$size3
+  Yw <- motif_obj$counts$wedges
 
+  log_cells_vec <- log(pmax(as.numeric(motif_obj$exposure$cells), 1))
+  names(log_cells_vec) <- samples
   log_cells <- matrix(
-    log(pmax(as.numeric(motif_obj$exposure$cells), 1)),
+    log_cells_vec,
     nrow = max(1, nrow(Y1)),
     ncol = length(samples),
     byrow = TRUE,
@@ -498,13 +607,38 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
   names(log_edges) <- samples
   log_tris <- log(pmax(as.numeric(motif_obj$exposure$triangles), 1))
   names(log_tris) <- samples
+  log_wedges <- NULL
+  if (!is.null(motif_obj$exposure$wedges)) {
+    log_wedges <- log(pmax(as.numeric(motif_obj$exposure$wedges), 1))
+    names(log_wedges) <- samples
+  }
 
-  offset2 <- build_pair_offsets(Y2, Y1, log_edges, pseudo)
+  offset2 <- build_pair_offsets(Y2, Y1, log_edges, log_cells_vec, pseudo)
   offset3 <- build_tri_offsets(Y3, Y2, log_tris, pseudo)
+  offsetw <- NULL
+  if (!is.null(Yw)) {
+    offsetw <- build_wedge_offsets(Yw, Y2, log_wedges, pseudo)
+  }
   list(
     size1 = Matrix::Matrix(log_cells, sparse = TRUE, dimnames = dimnames(Y1)),
     size2 = Matrix::Matrix(offset2, sparse = TRUE, dimnames = dimnames(Y2)),
-    size3 = Matrix::Matrix(offset3, sparse = TRUE, dimnames = dimnames(Y3))
+    size3 = Matrix::Matrix(offset3, sparse = TRUE, dimnames = dimnames(Y3)),
+    wedges = if (!is.null(offsetw)) Matrix::Matrix(offsetw, sparse = TRUE, dimnames = dimnames(Yw)) else NULL
+  )
+}
+
+normalize_counts_simple <- function(counts, offsets) {
+  norm_layer <- function(Y, off) {
+    if (is.null(Y) || nrow(Y) == 0) {
+      return(Matrix::Matrix(0, nrow = 0, ncol = ncol(Y), sparse = TRUE, dimnames = dimnames(Y)))
+    }
+    Matrix::Matrix(as.matrix(Y) / exp(as.matrix(off)), sparse = TRUE, dimnames = dimnames(Y))
+  }
+  list(
+    size1 = norm_layer(counts$size1, offsets$size1),
+    size2 = norm_layer(counts$size2, offsets$size2),
+    size3 = norm_layer(counts$size3, offsets$size3),
+    wedges = if (!is.null(counts$wedges) && !is.null(offsets$wedges)) norm_layer(counts$wedges, offsets$wedges) else NULL
   )
 }
 
@@ -520,55 +654,31 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
 #' @param return_log Logical; if `TRUE`, returns `log(obs + eps) - log(fitted + eps)`, otherwise `(obs + eps)/(fitted + eps)`.
 #' @param eps Small stabilizer for ratios/logs.
 #' @return List with normalized matrices (`size1`, `size2`, `size3`) 
-#' @export
+#' @keywords internal
 edgeRnorm_motif_counts  <- function(
   motif_obj,
   pseudo = 0.5,
   return_log = TRUE,
   eps = 0.5
 ) {
-  require(edgeR)
-  require(Matrix)
-
-  samples <- motif_obj$samples
-  offsets <- compute_motif_offsets(motif_obj, pseudo)
-
-  design_null <- matrix(1, nrow = length(samples), ncol = 1)
-  colnames(design_null) <- "Intercept"
-
-  fit_layer <- function(Y, off) {
-    if (is.null(Y) || nrow(Y) == 0) {
-      return(Matrix(0, nrow = 0, ncol = length(samples),
-                    sparse = TRUE, dimnames = list(NULL, samples)))
-    }
-
-    dge <- DGEList(counts = Y)
-    dge <- calcNormFactors(dge)
-    dge$offset <- as.matrix(off)
-
-    dge <- estimateDisp(dge, design = design_null)
-    fit <- glmQLFit(dge, design = design_null)
-
-    mu <- fit$fitted.values
-    obs <- as.matrix(Y)
-
-    if (return_log)
-      out <- log2(obs + eps) - log2(mu + eps)
-    else
-      out <- (obs + eps) / (mu + eps)
-
-    Matrix(out, sparse = TRUE, dimnames = dimnames(Y))
+  .Deprecated("count_motifs_graphs()$norm_counts")
+  offsets <- if (!is.null(motif_obj$offsets)) motif_obj$offsets else compute_motif_offsets(motif_obj, pseudo)
+  base <- normalize_counts_simple(motif_obj$counts, offsets)
+  if (!return_log) return(base)
+  to_log <- function(mat) {
+    if (is.null(mat) || nrow(mat) == 0) return(mat)
+    Matrix::Matrix(log2(as.matrix(mat) + eps), sparse = TRUE, dimnames = dimnames(mat))
   }
-
   list(
-    size1 = fit_layer(motif_obj$counts$size1, offsets$size1),
-    size2 = fit_layer(motif_obj$counts$size2, offsets$size2),
-    size3 = fit_layer(motif_obj$counts$size3, offsets$size3)
+    size1 = to_log(base$size1),
+    size2 = to_log(base$size2),
+    size3 = to_log(base$size3),
+    wedges = to_log(base$wedges)
   )
 }
 
 #' @rdname edgeRnorm_motif_counts
-#' @export
+#' @keywords internal
 normalize_motif_counts <- function(
   motif_obj,
   pseudo = 0.5,
@@ -579,13 +689,12 @@ normalize_motif_counts <- function(
   eps = 0.5,
   verbose = FALSE
 ) {
-  if (is.null(sample_df)) sample_df <- data.frame(row.names = motif_obj$samples)
-  edgeRnorm_motif_counts(
-    motif_obj = motif_obj,
-    pseudo = pseudo,
-    return_log = return_log,
-    eps = eps
-  )
+  .Deprecated("count_motifs_graphs()$norm_counts")
+  if (is.null(motif_obj$norm_counts)) {
+    offsets <- compute_motif_offsets(motif_obj, pseudo)
+    return(normalize_counts_simple(motif_obj$counts, offsets))
+  }
+  motif_obj$norm_counts
 }
 
 
@@ -610,40 +719,67 @@ normalize_motif_counts <- function(
 #' @return A list with `design`, `results` (data frames for each size),
 #'   `fdr` metadata describing the method/threshold, and, when applicable, DAG nodes and edges.
 #' @export
-cellmotif_edger <- function(
+motif_edger <- function(
   motif_obj,
   sample_df,
   design_formula,
   coef = NULL,
+  coef_variable = NULL,
+  coef_level = NULL,
   pseudo = 0.5,
   alpha = 0.05,
   verbose = TRUE,
-  fdr_method = c("bh", "dagger")
+  fdr_method = c("bh", "dagger"),
+  merge_triplets = FALSE
 ) {
   #"edgeR", "Matrix"
   
+  validate_motif_obj(motif_obj, require_offsets = TRUE)
   samples <- motif_obj$samples
   if (is.null(rownames(sample_df))) stop("sample_df must have rownames = sample IDs")
   sample_df <- as.data.frame(sample_df[samples, , drop = FALSE])
   design <- stats::model.matrix(stats::as.formula(design_formula), data = sample_df)
-  if (is.null(coef)) {
-    coef <- which(colnames(design) != "(Intercept)")[1]
-    if (length(coef) == 0) stop("No non-intercept term found; set `coef`.")
-  } else if (is.character(coef)) {
-    coef <- match(coef, colnames(design))
-    if (is.na(coef)) stop("coef name not found.")
+  resolve_coef <- function() {
+    if (!is.null(coef)) {
+      if (is.character(coef)) {
+        idx <- match(coef, colnames(design))
+        if (is.na(idx)) stop("coef name not found.")
+        return(idx)
+      }
+      return(coef)
+    }
+    non_int <- which(colnames(design) != "(Intercept)")
+    if (!is.null(coef_variable)) {
+      target_cols <- grep(paste0("^", coef_variable), colnames(design))
+      if (length(target_cols) == 0) stop("coef_variable not found in design.")
+      if (!is.null(coef_level)) {
+        target_name <- paste0(coef_variable, coef_level)
+        idx <- match(target_name, colnames(design))
+        if (!is.na(idx)) return(idx)
+      }
+      return(target_cols[1])
+    }
+    if (length(non_int) == 0) stop("No non-intercept term found; set `coef`.")
+    non_int[1]
   }
+  coef <- resolve_coef()
 
   fdr_method <- match.arg(fdr_method)
 
   Y1 <- motif_obj$counts$size1
   Y2 <- motif_obj$counts$size2
   Y3 <- motif_obj$counts$size3
+  Yw <- motif_obj$counts$wedges
 
-  offsets <- compute_motif_offsets(motif_obj, pseudo)
+  offsets <- motif_obj$offsets
+  if (is.null(offsets)) {
+    pseudo_local <- if (!is.null(motif_obj$meta$offset_pseudo)) motif_obj$meta$offset_pseudo else pseudo
+    offsets <- compute_motif_offsets(motif_obj, pseudo_local)
+  }
   log_cells <- offsets$size1
   off2 <- offsets$size2
   off3 <- offsets$size3
+  offw <- offsets$wedges
 
   # edgeR fits (per layer)
   fit_layer <- function(Y, off) {
@@ -695,6 +831,33 @@ cellmotif_edger <- function(
     )
   }
 
+  merge_triplet_layer <- function(Y_tri, off_tri, Y_wedge, off_wedge) {
+    counts_list <- list()
+    offsets_list <- list()
+    if (!is.null(Y_tri) && nrow(Y_tri)) {
+      rownames(Y_tri) <- sub("^[^_]+_", "TW_", rownames(Y_tri))
+      counts_list[[length(counts_list) + 1]] <- Y_tri
+      offsets_list[[length(offsets_list) + 1]] <- off_tri
+    }
+    if (!is.null(Y_wedge) && nrow(Y_wedge)) {
+      rownames(Y_wedge) <- sub("^[^_]+_", "TW_", rownames(Y_wedge))
+      counts_list[[length(counts_list) + 1]] <- Y_wedge
+      offsets_list[[length(offsets_list) + 1]] <- off_wedge
+    }
+    if (!length(counts_list)) return(list(counts = Matrix::Matrix(0, nrow = 0, ncol = ncol(Y2),
+      sparse = TRUE, dimnames = list(character(), colnames(Y2))), offsets = Matrix::Matrix(0, nrow = 0, ncol = ncol(Y2))))
+    list(
+      counts = if (length(counts_list) == 1) counts_list[[1]] else rbind(counts_list[[1]], counts_list[[2]]),
+      offsets = if (length(offsets_list) == 1) offsets_list[[1]] else rbind(offsets_list[[1]], offsets_list[[2]])
+    )
+  }
+
+  if (merge_triplets) {
+    merged <- merge_triplet_layer(Y3, off3, Yw, offw)
+    Y3 <- merged$counts
+    off3 <- merged$offsets
+  }
+
   if (verbose) message("Fitting edgeR (QL)…")
   res1 <- fit_layer(Y1, log_cells)
   res2 <- fit_layer(Y2, off2)
@@ -711,22 +874,21 @@ cellmotif_edger <- function(
 
     edges <- list()
     if (length(size1) && length(size2)) {
-      ab <- do.call(rbind, strsplit(size2, "_"))
+      ab <- split_pair_labels(size2)
       for (i in seq_along(size2)) {
-        a <- ab[i, 1]
-        b <- ab[i, 2]
+        a <- prefix_key(ab[i, 1], "N")
+        b <- prefix_key(ab[i, 2], "N")
         if (a %in% size1) edges[[length(edges) + 1]] <- c(node_id[[a]], node_id[[size2[i]]])
         if (b %in% size1) edges[[length(edges) + 1]] <- c(node_id[[b]], node_id[[size2[i]]])
       }
     }
     if (length(size2) && length(size3)) {
-      abc <- do.call(rbind, strsplit(size3, "_"))
-      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "_") else paste(v, u, sep = "_")
+      abc <- split_triplet_labels(size3)
       for (i in seq_along(size3)) {
         A <- abc[i, 1]
         B <- abc[i, 2]
         C <- abc[i, 3]
-        for (pp in c(pair_key(A, B), pair_key(A, C), pair_key(B, C))) {
+        for (pp in c(pair_key_vec(A, B, "E"), pair_key_vec(A, C, "E"), pair_key_vec(B, C, "E"))) {
           if (pp %in% size2) edges[[length(edges) + 1]] <- c(node_id[[pp]], node_id[[size3[i]]])
         }
       }
@@ -738,10 +900,10 @@ cellmotif_edger <- function(
     keep1 <- if (length(q1)) (q1 <= alpha) else logical(0)
     q2 <- rep(NA_real_, length(size2))
     if (length(size2)) {
-      ab <- do.call(rbind, strsplit(size2, "_"))
+      ab <- split_pair_labels(size2)
       ok <- logical(length(size2))
       for (i in seq_along(size2)) {
-        ok[i] <- (ab[i, 1] %in% size1[keep1]) && (ab[i, 2] %in% size1[keep1])
+        ok[i] <- (prefix_key(ab[i, 1], "N") %in% size1[keep1]) && (prefix_key(ab[i, 2], "N") %in% size1[keep1])
       }
       pv2 <- res2$PValue
       pv2[!ok] <- NA
@@ -749,15 +911,14 @@ cellmotif_edger <- function(
     }
     q3 <- rep(NA_real_, length(size3))
     if (length(size3)) {
-      abc <- do.call(rbind, strsplit(size3, "_"))
-      pair_key <- function(u, v) if (u <= v) paste(u, v, sep = "_") else paste(v, u, sep = "_")
+      abc <- split_triplet_labels(size3)
       ok3 <- logical(length(size3))
       keep2_set <- if (length(size2)) size2[which(q2 <= alpha)] else character(0)
       for (i in seq_along(size3)) {
         prs <- c(
-          pair_key(abc[i, 1], abc[i, 2]),
-          pair_key(abc[i, 1], abc[i, 3]),
-          pair_key(abc[i, 2], abc[i, 3])
+          pair_key_vec(abc[i, 1], abc[i, 2], "E"),
+          pair_key_vec(abc[i, 1], abc[i, 3], "E"),
+          pair_key_vec(abc[i, 2], abc[i, 3], "E")
         )
         ok3[i] <- all(prs %in% keep2_set)
       }
@@ -790,12 +951,18 @@ cellmotif_edger <- function(
 
 list(
     design = design,
-    results = list(size1 = res1[order(res1$PValue),], size2 = res2[order(res2$PValue),], size3 = res3[order(res3$PValue),]),
+    results = {
+      ord <- function(df) if (is.null(df)) NULL else df[order(df$PValue), ]
+      list(size1 = ord(res1), size2 = ord(res2), size3 = ord(res3))
+    },
     dag = dag_result,
     fdr = fdr_meta
   )
 }
 
 #' @rdname cellmotif_edger
-#' @export
-motif_edger <- cellmotif_edger
+#' @keywords internal
+cellmotif_edger <- function(...) {
+  .Deprecated("motif_edger")
+  motif_edger(...)
+}
