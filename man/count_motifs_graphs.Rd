@@ -2,40 +2,46 @@
 \alias{count_motifs_graphs}
 \title{Count cell-type motifs on spatial graphs}
 \description{
-Builds a constrained Delaunay triangulation for each sample, prunes edges that exceed \code{max\_edge\_len},
+Reuses a constrained Delaunay triangulation, prunes edges that exceed \code{max\_edge\_len},
 and counts cell-type singletons, unordered pairs (edges), and unordered triplets (triangles).
 Triangle counts are accelerated via the C++ helper exposed in \pkg{CellEdgeR}.
 }
 \usage{
-count_motifs_graphs(cells_by_sample = NULL, graph_obj = NULL, max_edge_len = NA_real_, n_cores = 1, include_wedges = FALSE, verbose = TRUE)
+count_motifs_graphs(graph_obj, max_edge_len = NA_real_, include_wedge = FALSE, verbose = TRUE,
+  offset_pseudo = 1, n_cores = 1)
 }
 \arguments{
-  \item{cells_by_sample}{Named list of data frames. Each data frame must have numeric \code{x} and \code{y} coordinates
-    plus a \code{label} column indicating the cell type. Names of the list are treated as sample identifiers.
-    Provide this argument when you do not already have a prebuilt graph object.}
-  \item{graph_obj}{Optional output of \code{build_cell_graphs()}; the triangulation is reused and \code{cells_by_sample} is ignored when provided.}
+  \item{graph_obj}{Output of \code{build_cell_graphs()}; the triangulation is reused and only pruning/wedge parameters are applied here.}
   \item{max_edge_len}{Numeric edge-length threshold; Delaunay edges longer than this are dropped before counting.
     Set to \code{NA}, \code{NULL}, or \code{<= 0} to keep the full Delaunay graph.}
-  \item{n_cores}{Integer number of cores to request when \code{cells_by_sample} is supplied; values greater than 1 trigger \code{parallel::mclapply} on Unix-alikes, while 1 runs sequentially.}
-  \item{include_wedges}{Logical flag; when \code{TRUE} also counts open three-node paths (wedges) and records them under \code{counts\$wedges} plus \code{exposure\$wedges}.}
+  \item{include_wedge}{Logical flag; when \code{TRUE} also counts open three-node paths (wedge) and records them under \code{counts\$wedge} plus \code{exposure\$wedge}.}
   \item{verbose}{Logical; print progress messages for graph construction, counting stages, and (when enabled) wedge collection.}
+  \item{offset_pseudo}{Small positive constant used inside offsets.}
+  \item{n_cores}{Parallelism hint for motif counting; values greater than 1 trigger \code{parallel::mclapply} on Unix-alikes, while 1 runs sequentially.}
 }
 \details{
 All samples share a global label vocabulary so that counts align across matrices.
-Call \code{build_cell_graphs()} if you want to reuse the same triangulation across multiple
-pruning/wedge configurations; otherwise \code{cells_by_sample} is used directly and the graphs are re-built.
-Counts are sparse \pkg{Matrix} objects (size 1 for cells, size 2 for edges, size 3 for triangles, plus wedges when requested).
-Enabling wedges adds \code{counts\$wedges} and \code{exposure\$wedges}; the latter also reports wedge totals
+Call \code{build_cell_graphs()} to create the reusable triangulation, then reuse it across different pruning/wedge configurations.
+Counts are sparse \pkg{Matrix} objects (node for cells, edge for pairs, triangle for triplets, plus wedge when requested).
+Enabling wedge adds \code{counts\$wedge} and \code{exposure\$wedge}; the latter also reports wedge totals
 alongside edge/triangle exposures.
 }
 \value{
 A named list with these entries:
 \describe{
-  \item{\code{samples}}{Character vector of sample IDs (names of \code{cells_by_sample}).}
-  \item{\code{label_levels}}{Sorted unique cell-type labels spanning all samples.}
-  \item{\code{counts}}{List with \code{size1}, \code{size2}, and \code{size3} sparse matrices plus \code{counts\$wedges} when requested.}
-  \item{\code{exposure}}{List with \code{cells}, \code{edges}, \code{triangles}, and (with \code{include_wedges = TRUE}) \code{wedges}.}
-  \item{\code{meta}}{Named list with parameters such as \code{max_edge_len} and \code{include_wedges}.}
+  \item{\code{sample_name}}{Character vector of sample names (names of \code{cells_by_sample}).}
+  \item{\code{label_levels/lab_to_id}}{Sorted unique cell-type labels and integer lookup.}
+  \item{\code{per_sample_graph}}{Cached per-sample graph structures (edges, lengths, labels, coordinates).}
+  \item{\code{raw_count}}{Sparse matrices for \code{node}, \code{edge}, \code{triangle}, and optional \code{wedge} motifs (rows = motifs, cols = samples).}
+  \item{\code{exposure}}{Totals used for offsets: \code{cells}, \code{edges}, \code{triangles}, \code{volumes} per label×sample, and \code{wedge} when requested.}
+  \item{\code{offsets}}{Offset sets (e.g., \code{volume}, \code{hier_null}), each containing log-expected matrices per layer.
+  Node offsets are adjusted with TMM factors; other layers use the structural offsets only.}
+  \item{\code{norm_counts}}{Normalized counts per offset set (counts / \code{exp(offset)}).}
+  \item{\code{relative_counts}}{edgeR intercept-only log2 residuals per offset set.}
+  \item{\code{offset_part_id}}{For each offset set, the components contributing to each motif's offset.}
+  \item{\code{offset_part_values}}{Numeric values referenced by \code{offset_part_id} (e.g., volumes, 2m, edge posteriors).}
+  \item{\code{edger}}{edgeR fits/tests once \code{motif_edger()} is run.}
+  \item{\code{parameters}}{Run parameters (e.g., \code{max_edge_len}, \code{include_wedge}, \code{offset_pseudo}, available \code{offset_modes}, layer names, node_tmm_offsets flag).}
 }
 }
 \examples{
@@ -45,6 +51,6 @@ cells <- list(
 )
 graphs <- build_cell_graphs(cells, verbose = FALSE)
 counts <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 3, verbose = FALSE)
-counts_full <- count_motifs_graphs(graph_obj = graphs, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
-str(counts_full$counts)
+counts_full <- count_motifs_graphs(graph_obj = graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+str(counts_full$raw_count)
 }

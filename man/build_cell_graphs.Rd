@@ -6,13 +6,14 @@ Builds a constrained Delaunay triangulation for each sample and caches the raw e
 motif-counting passes can reuse the same triangulation.
 }
 \usage{
-build_cell_graphs(cells_by_sample, n_cores = 1, verbose = TRUE)
+build_cell_graphs(cells_by_sample, n_cores = 1, verbose = TRUE, max_labels = 100)
 }
 \arguments{
   \item{cells_by_sample}{Named list of data frames where the first two columns are numeric \code{x, y} coordinates
-    and the third column holds the cell-type label. Names of the list are treated as sample identifiers.}
+    and the third column holds the cell-type label. Names of the list are treated as sample names.}
   \item{n_cores}{Integer number of cores to request; values greater than 1 trigger \code{parallel::mclapply} on Unix-alikes, while 1 runs sequentially.}
   \item{verbose}{Logical; print progress messages for standardization and graph construction.}
+  \item{max_labels}{Maximum number of unique labels allowed across all samples (fails early if exceeded).}
 }
 \details{
 This helper performs the expensive Delaunay triangulation step and records every edge's length.
@@ -22,10 +23,12 @@ motif counts without re-running the triangulation, even when the pruning or wedg
 \value{
 A list of class \code{cellEdgeR_graphs} containing:
 \describe{
-  \item{\code{samples}}{Character vector of sample IDs.}
-  \item{\code{label_levels}}{Sorted unique cell-type labels spanning all samples.}
-  \item{\code{lab_to_id}}{Global label-to-integer lookup.}
-  \item{\code{per_sample}}{List with entries for each sample that store \code{edges}, their lengths \code{edge_len}, and the label IDs/characters.}
+  \item{\code{sample_name}}{Character vector of sample names.}
+  \item{\code{label_levels/lab_to_id}}{Sorted unique cell-type labels and a global label-to-integer lookup.}
+  \item{\code{per_sample_graph}}{Per-sample entries storing \code{n} (node count), \code{labels_chr}, \code{labels_id}, \code{edges}, edge lengths \code{edge_len}, and coordinates \code{xy}.}
+  \item{\code{raw_count/exposure/offsets/norm_counts/relative_counts}}{Empty placeholders until \code{count_motifs_graphs()} is called.}
+  \item{\code{edger}}{Empty placeholder until \code{motif_edger()} is called.}
+  \item{\code{parameters}}{Build parameters (placeholders for \code{max_edge_len}, \code{offset_pseudo}, \code{built_from}).}
 }}
 \examples{
 cells <- list(

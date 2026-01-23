@@ -58,28 +58,44 @@ validate_graph_obj <- function(graph_obj) {
   if (!inherits(graph_obj, "cellEdgeR_graphs") && !inherits(graph_obj, "cellEdgeR_obj")) {
     stop("graph_obj must come from build_cell_graphs().")
   }
-  if (is.null(graph_obj$samples) || !length(graph_obj$samples)) stop("graph_obj has no samples.")
-  if (anyDuplicated(graph_obj$samples)) stop("graph_obj samples must be unique.")
-  if (!is.list(graph_obj$per_sample)) stop("graph_obj$per_sample must be a list.")
-  missing <- setdiff(graph_obj$samples, names(graph_obj$per_sample))
+  if (is.null(graph_obj$sample_name) || !length(graph_obj$sample_name)) stop("graph_obj has no sample names.")
+  if (anyDuplicated(graph_obj$sample_name)) stop("graph_obj sample names must be unique.")
+  if (is.null(graph_obj$per_sample_graph) || !length(graph_obj$per_sample_graph)) {
+    stop("graph_obj is missing per_sample_graph; count_motifs_graphs() and plot_sample_graph() require per-sample graphs. ",
+      "Rebuild with build_cell_graphs() or keep per_sample_graph when trimming to save memory.")
+  }
+  if (!is.list(graph_obj$per_sample_graph)) stop("graph_obj$per_sample_graph must be a list.")
+  missing <- setdiff(graph_obj$sample_name, names(graph_obj$per_sample_graph))
   if (length(missing)) stop("graph_obj missing per-sample entries: ", paste(missing, collapse = ", "))
   invisible(TRUE)
 }
 
+available_offset_modes <- function(obj) {
+  offs <- obj$offsets
+  if (is.null(offs) || !is.list(offs) || !length(offs)) return(character())
+  if (!is.null(names(offs)) && all(vapply(offs, function(x) is.list(x) && any(c("node", "edge", "triangle") %in% names(x)), logical(1)))) {
+    return(names(offs))
+  }
+  if (all(c("node", "edge", "triangle") %in% names(offs))) {
+    return("volume")
+  }
+  character()
+}
+
 validate_motif_obj <- function(motif_obj, require_offsets = TRUE) {
-  if (!is.list(motif_obj) || is.null(motif_obj$counts)) {
-    stop("motif_obj must be the list returned by count_motifs_graphs().")
+  if (!is.list(motif_obj) || is.null(motif_obj$raw_count)) {
+    stop("Object must be the list returned by count_motifs_graphs().")
   }
   if (!inherits(motif_obj, "cellEdgeR_obj")) {
-    stop("motif_obj must come from build_cell_graphs()/count_motifs_graphs().")
+    stop("Object must come from build_cell_graphs()/count_motifs_graphs().")
   }
-  if (is.null(motif_obj$samples) || !length(motif_obj$samples)) {
-    stop("motif_obj is missing sample identifiers.")
+  if (is.null(motif_obj$sample_name) || !length(motif_obj$sample_name)) {
+    stop("Object is missing sample names.")
   }
-  if (!is.list(motif_obj$counts)) stop("motif_obj$counts must be a list of sparse matrices.")
-  if (is.null(motif_obj$exposure)) stop("motif_obj is missing exposure totals.")
-  if (require_offsets && is.null(motif_obj$offsets)) {
-    stop("motif_obj is missing offsets; rerun count_motifs_graphs() to compute them.")
+  if (!is.list(motif_obj$raw_count)) stop("raw_count must be a list of sparse matrices.")
+  if (is.null(motif_obj$exposure)) stop("Object is missing exposure totals.")
+  if (require_offsets && length(available_offset_modes(motif_obj)) == 0) {
+    stop("Object is missing offsets; rerun count_motifs_graphs() to compute them.")
   }
   invisible(TRUE)
 }
@@ -160,7 +176,15 @@ filter_edges_by_threshold <- function(edges, lengths, threshold) {
 #'   and the third holds cell-type labels; column names are not required as long as the ordering is preserved.
 #' @param n_cores Parallelism hint; values greater than 1 trigger `parallel::mclapply` on Unix-alikes, while 1 runs sequentially.
 #' @param verbose Logical; print progress.
-#' @return A cellgraph object (class `cellEdgeR_obj`) containing the sample names, global label set, and per-sample edges/labels. Motif slots (`counts`, `offsets`, etc.) are filled by [count_motifs_graphs()].
+#' @return A cellgraph object (class `cellEdgeR_obj`) containing:
+#' \describe{
+#' \item{sample_name}{Sample names in the order used throughout.}
+#' \item{label_levels/lab_to_id}{Canonical label set and integer map.}
+#' \item{per_sample_graph}{Per-sample list with node count, labels (chr/int), edges, edge lengths, and coordinates.}
+#' \item{raw_count/exposure/offsets/norm_counts/relative_counts}{Empty placeholders until [count_motifs_graphs()] is called.}
+#' \item{edger}{Empty placeholder until [motif_edger()] is called.}
+#' \item{parameters}{Build parameters (placeholders for max_edge_len, offset_pseudo, built_from).}
+#' }
 #' @export
 build_cell_graphs <- function(
   cells_by_sample,
@@ -198,7 +222,7 @@ build_cell_graphs <- function(
       labs_id <- unname(lab_to_id[labs_chr])
       edges_info <- build_delaunay_edges(df, verbose = verbose)
       list(
-        sample = s,
+        sample_name = s,
         n = nrow(df),
         labels_id = labs_id,
         labels_chr = labs_chr,
@@ -214,7 +238,7 @@ build_cell_graphs <- function(
       labs_id <- unname(lab_to_id[labs_chr])
       edges_info <- build_delaunay_edges(df, verbose = verbose)
       list(
-        sample = s,
+        sample_name = s,
         n = nrow(df),
         labels_id = labs_id,
         labels_chr = labs_chr,
@@ -228,15 +252,19 @@ build_cell_graphs <- function(
 
   structure(
     list(
-      samples = samples,
+      sample_name = samples,
       label_levels = lab_levels,
       lab_to_id = lab_to_id,
-      per_sample = per_sample,
-      counts = NULL,
+      per_sample_graph = per_sample,
+      raw_count = NULL,
       exposure = NULL,
       offsets = NULL,
       norm_counts = NULL,
-      meta = list(max_edge_len = NA_real_, include_wedges = FALSE, offset_pseudo = NA_real_, built_from = "cells")
+      relative_counts = NULL,
+      offset_part_id = NULL,
+      offset_part_values = NULL,
+      edger = NULL,
+      parameters = list(max_edge_len = NA_real_, include_wedge = FALSE, offset_pseudo = NA_real_, built_from = "cells")
     ),
     class = c("cellEdgeR_obj", "cellEdgeR_graphs")
   )
@@ -244,21 +272,31 @@ build_cell_graphs <- function(
 
 #' Count cell-type motifs on Delaunay graphs
 #'
-#' Build a Delaunay triangulation for each sample (when \code{graph_obj} is \code{NULL}), prune edges that exceed \code{max_edge_len},
-#' and count cell-type singletons, unordered pairs (edges), unordered triplets (triangles), and optionally wedges.
+#' Reuse a prebuilt Delaunay triangulation, prune edges that exceed \code{max_edge_len},
+#' and count cell-type singletons, unordered pairs (edges), unordered triplets (triangles), and optionally wedge.
 #' Triangle counts are accelerated via the C++ helper exposed in \pkg{CellEdgeR}.
 #'
-#' @param cells_by_sample Named list of data frames where the first two columns are numeric coordinates and the third holds cell-type labels.
-#'   Provide this argument when you do not already have a prebuilt graph object.
-#' @param graph_obj Optional output of \code{build_cell_graphs()}; when supplied, the triangulation is reused and \code{n_cores} is ignored.
+#' @param graph_obj Output of \code{build_cell_graphs()}; the triangulation is reused and only pruning/wedge parameters are applied here.
 #' @param max_edge_len Numeric threshold; Delaunay edges longer than this are dropped. Set to \code{NA}, \code{NULL}, or \code{<= 0} to skip pruning.
-#' @param n_cores Parallelism hint; values greater than 1 trigger \code{parallel::mclapply} (Unix-alike only) when building graphs from raw samples.
-#' @param include_wedges Logical; if \code{TRUE}, returns open-triplet (wedge) counts alongside triangles.
+#' @param include_wedge Logical; if \code{TRUE}, returns open-triplet (wedge) counts alongside triangles.
 #' @param verbose Logical; print progress.
 #' @param offset_pseudo Small positive constant used inside offsets.
-#' @param max_labels Maximum allowed number of unique labels (guards against malformed inputs).
+#' @param n_cores Parallelism hint for motif counting; values greater than 1 trigger \code{parallel::mclapply} on Unix-alikes, while 1 runs sequentially.
 #'
-#' @return A cellgraph object (class `cellEdgeR_obj`) with the original graph info plus motif `counts`, `exposure`, `offsets`, `norm_counts`, and `relative_counts` (log2 residuals from intercept-only edgeR fits).
+#' @return A cellgraph object (class `cellEdgeR_obj`) with the original graph info plus:
+#' \describe{
+#' \item{raw_count}{Sparse matrices for `node`, `edge`, `triangle`, and optional `wedge` motifs (rows=motifs, cols=samples).}
+#' \item{exposure}{Totals used in offsets: `cells`, `edges`, `triangles`, `volumes` per label×sample, and `wedge` when requested.}
+#' \item{offsets}{Offset sets (e.g., `volume`, `hier_null`), each containing log-expected matrices per layer.
+#'   Node offsets are adjusted with TMM factors; other layers use the structural offsets only.}
+#' \item{norm_counts}{Normalized counts per offset set (counts / exp(offset)).}
+#' \item{relative_counts}{edgeR intercept-only log2 residuals per offset set.}
+#' \item{offset_part_id}{For each offset set, the components contributing to each motif's offset.}
+#' \item{offset_part_values}{Numeric values referenced by `offset_part_id` (e.g., volumes, 2m, edge posteriors).}
+#' \item{edger}{edgeR fits/tests once [motif_edger()] is run.}
+#' \item{parameters}{Run parameters (max_edge_len, include_wedge, offset_pseudo, available offset_modes, layer names,
+#'   node_tmm_offsets flag).}
+#' }
 #' @examples
 #' demo <- list(
 #'   s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "A", "B")),
@@ -266,62 +304,418 @@ build_cell_graphs <- function(
 #' )
 #' graphs <- build_cell_graphs(demo, verbose = FALSE)
 #' counts <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 3, verbose = FALSE)
-#' counts_full <- count_motifs_graphs(graph_obj = graphs, max_edge_len = NA_real_, include_wedges = TRUE, verbose = FALSE)
-#' str(counts_full$counts)
+#' counts_full <- count_motifs_graphs(graph_obj = graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+#' str(counts_full$raw_count)
 #' @rdname count_motifs_graphs
 #' @export
 count_motifs_graphs <- function(
-  cells_by_sample = NULL,
-  graph_obj = NULL,
-  max_edge_len = NA_real_,
-  n_cores = 1,
-  include_wedges = FALSE,
+  graph_obj,
+  max_edge_len = NA,
+  include_wedge = FALSE,
   verbose = TRUE,
-  offset_pseudo = 0.5,
-  max_labels = 100
+  offset_pseudo = 1,
+  n_cores = 1
 ) {
-  graphs <- NULL
-  if (!is.null(graph_obj)) {
-    validate_graph_obj(graph_obj)
-    graphs <- graph_obj
-  } else if (!is.null(cells_by_sample) && inherits(cells_by_sample, "cellEdgeR_graphs")) {
-    validate_graph_obj(cells_by_sample)
-    graphs <- cells_by_sample
-    cells_by_sample <- NULL
-  } else if (!is.null(cells_by_sample)) {
-    graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = verbose, max_labels = max_labels)
-  } else {
-    stop("Provide either cells_by_sample or graph_obj.")
-  }
+  validate_graph_obj(graph_obj)
+  graphs <- graph_obj
 
   counts_obj <- count_motifs_from_graphs(
     graphs = graphs,
     max_edge_len = max_edge_len,
-    include_wedges = include_wedges,
-    verbose = verbose
+    include_wedge = include_wedge,
+    verbose = verbose,
+    n_cores = n_cores
   )
-  offsets <- compute_motif_offsets(counts_obj, offset_pseudo)
-  norm_counts <- normalize_counts_simple(counts_obj$counts, offsets)
+  # Offsets: volume and hierarchical (intercept-based)
+  offsets_volume <- compute_offsets_volume(counts_obj, offset_pseudo)
+  hier_null <- compute_offsets_hierarchical(counts_obj, offset_pseudo, mode = "null")
+  offset_results <- list(
+    volume = offsets_volume,
+    hier_null = hier_null
+  )
+  offset_results <- lapply(offset_results, function(res) {
+    list(
+      offsets = res$offsets,
+      parts = res$parts,
+      part_values = res$part_values,
+      norm_counts = normalize_counts_simple(counts_obj$raw_count, res$offsets),
+      relative_counts = compute_relative_counts(counts_obj$raw_count, res$offsets, samples = graphs$sample_name, verbose = verbose)
+    )
+  })
 
-  graphs$counts <- counts_obj$counts
+  graphs$raw_count <- counts_obj$raw_count
   graphs$exposure <- counts_obj$exposure
-  graphs$offsets <- offsets
-  graphs$norm_counts <- norm_counts
-  graphs$relative_counts <- compute_relative_counts(graphs, offset_pseudo, verbose = verbose)
-  graphs$meta$max_edge_len <- max_edge_len
-  graphs$meta$include_wedges <- include_wedges
-  graphs$meta$offset_pseudo <- offset_pseudo
+  graphs$offsets <- lapply(offset_results, `[[`, "offsets")
+  graphs$offset_part_id <- lapply(offset_results, `[[`, "parts")
+  graphs$offset_part_values <- lapply(offset_results, `[[`, "part_values")
+  graphs$norm_counts <- lapply(offset_results, `[[`, "norm_counts")
+  graphs$relative_counts <- lapply(offset_results, `[[`, "relative_counts")
+  graphs$edger <- NULL
+  graphs$parameters$max_edge_len <- max_edge_len
+  graphs$parameters$include_wedge <- include_wedge
+  graphs$parameters$offset_pseudo <- offset_pseudo
+  graphs$parameters$offset_modes <- names(offset_results)
+  graphs$parameters$node_tmm_offsets <- isTRUE(offsets_volume$node_tmm_applied)
+  graphs$parameters$layer_names <- list(node = "node", edge = "edge", triangle = "triangle", wedge = "wedge")
   graphs
 }
 
-count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbose) {
+#' Merge two motif objects
+#'
+#' Combine two `cellEdgeR_obj` outputs from [count_motifs_graphs()] into a single
+#' object with combined samples. Offsets and normalized counts are recomputed
+#' for the merged data.
+#'
+#' @param motif_obj_a,motif_obj_b `cellEdgeR_obj` objects returned by [count_motifs_graphs()].
+#' @param verbose Logical; print progress while recomputing offsets.
+#' @return A merged `cellEdgeR_obj` containing all samples; offsets, normalized
+#'   counts, and relative counts are recomputed for the combined data. Per-sample
+#'   graphs are kept only when present in both inputs.
+#' @export
+merge_motif_objs <- function(motif_obj_a, motif_obj_b, verbose = TRUE) {
+  validate_motif_obj(motif_obj_a, require_offsets = FALSE)
+  validate_motif_obj(motif_obj_b, require_offsets = FALSE)
+
+  check_samples <- function(samples, obj_name) {
+    if (is.null(samples) || !length(samples)) stop(obj_name, " has no sample names.")
+    if (anyNA(samples) || any(samples == "")) stop(obj_name, " sample names must be non-empty, non-NA.")
+    if (anyDuplicated(samples)) stop(obj_name, " sample names must be unique.")
+    invisible(TRUE)
+  }
+  align_cols <- function(mat, samples, layer, obj_name) {
+    if (is.null(mat)) stop(obj_name, " raw_count$", layer, " is missing.")
+    if (is.null(colnames(mat))) stop(obj_name, " raw_count$", layer, " is missing column names.")
+    if (anyDuplicated(colnames(mat))) {
+      stop(obj_name, " raw_count$", layer, " has duplicated column names.")
+    }
+    if (!setequal(colnames(mat), samples)) {
+      stop(obj_name, " raw_count$", layer, " columns do not match sample names.")
+    }
+    if (!identical(colnames(mat), samples)) mat <- mat[, samples, drop = FALSE]
+    mat
+  }
+  align_node_rows <- function(mat, labels, obj_name) {
+    expected <- prefix_key(labels, "N")
+    if (is.null(rownames(mat))) stop(obj_name, " raw_count$node is missing row names.")
+    if (anyNA(rownames(mat)) || any(rownames(mat) == "")) {
+      stop(obj_name, " raw_count$node has empty row names.")
+    }
+    if (anyDuplicated(rownames(mat))) stop(obj_name, " raw_count$node has duplicated row names.")
+    if (!setequal(rownames(mat), expected)) {
+      stop(obj_name, " raw_count$node row names must match label_levels.")
+    }
+    if (!identical(rownames(mat), expected)) mat <- mat[expected, , drop = FALSE]
+    mat
+  }
+  check_layer_keys <- function(mat, labels, layer, obj_name) {
+    keys <- rownames(mat)
+    if (is.null(keys)) stop(obj_name, " raw_count$", layer, " is missing row names.")
+    if (!length(keys)) return(invisible(TRUE))
+    if (anyNA(keys) || any(keys == "")) stop(obj_name, " raw_count$", layer, " has empty motif keys.")
+    if (anyDuplicated(keys)) stop(obj_name, " raw_count$", layer, " has duplicated motif keys.")
+    prefix <- switch(layer, edge = "E_", triangle = "T_", wedge = "W_")
+    if (!all(startsWith(keys, prefix))) {
+      stop(obj_name, " raw_count$", layer, " uses unexpected motif prefixes.")
+    }
+    parts <- strsplit(strip_prefix(keys), "_", fixed = TRUE)
+    expect_len <- if (layer == "edge") 2L else 3L
+    lens <- vapply(parts, length, integer(1))
+    if (any(lens != expect_len)) {
+      stop(obj_name, " raw_count$", layer, " has malformed motif keys.")
+    }
+    used_labels <- unique(unlist(parts))
+    missing <- setdiff(used_labels, labels)
+    if (length(missing)) {
+      stop(obj_name, " raw_count$", layer, " references labels not in label_levels: ",
+        paste(missing, collapse = ", "))
+    }
+    invisible(TRUE)
+  }
+  align_vector <- function(vec, samples, label, obj_name) {
+    if (is.null(vec)) stop(obj_name, " exposure$", label, " is missing.")
+    if (is.null(names(vec))) stop(obj_name, " exposure$", label, " must be named by sample names.")
+    if (anyDuplicated(names(vec))) stop(obj_name, " exposure$", label, " has duplicated sample names.")
+    if (!setequal(names(vec), samples)) {
+      stop(obj_name, " exposure$", label, " names do not match sample names.")
+    }
+    vec[samples]
+  }
+  align_volume <- function(mat, labels, samples, obj_name) {
+    if (is.null(mat)) stop(obj_name, " exposure$volumes is missing.")
+    if (is.null(rownames(mat)) || is.null(colnames(mat))) {
+      stop(obj_name, " exposure$volumes must have row and column names.")
+    }
+    if (anyDuplicated(rownames(mat))) stop(obj_name, " exposure$volumes has duplicated row names.")
+    if (anyDuplicated(colnames(mat))) stop(obj_name, " exposure$volumes has duplicated column names.")
+    if (!setequal(rownames(mat), labels)) {
+      stop(obj_name, " exposure$volumes rows do not match label_levels.")
+    }
+    if (!setequal(colnames(mat), samples)) {
+      stop(obj_name, " exposure$volumes columns do not match sample names.")
+    }
+    mat[labels, samples, drop = FALSE]
+  }
+  expand_sparse_rows <- function(mat, target_rows, layer, obj_name) {
+    if (is.null(target_rows) || !length(target_rows)) {
+      return(Matrix::Matrix(0, nrow = 0L, ncol = ncol(mat), sparse = TRUE,
+        dimnames = list(character(), colnames(mat))))
+    }
+    row_idx <- match(rownames(mat), target_rows)
+    if (anyNA(row_idx)) {
+      stop(obj_name, " raw_count$", layer, " has motifs not present in the merged set.")
+    }
+    if (nrow(mat) == 0L) {
+      return(Matrix::Matrix(0, nrow = length(target_rows), ncol = ncol(mat), sparse = TRUE,
+        dimnames = list(target_rows, colnames(mat))))
+    }
+    sm <- Matrix::summary(mat)
+    if (!nrow(sm)) {
+      return(Matrix::Matrix(0, nrow = length(target_rows), ncol = ncol(mat), sparse = TRUE,
+        dimnames = list(target_rows, colnames(mat))))
+    }
+    Matrix::sparseMatrix(
+      i = row_idx[sm$i],
+      j = sm$j,
+      x = sm$x,
+      dims = c(length(target_rows), ncol(mat)),
+      dimnames = list(target_rows, colnames(mat))
+    )
+  }
+  expand_dense_rows <- function(mat, target_rows, obj_name) {
+    if (is.null(rownames(mat))) stop(obj_name, " exposure$volumes is missing row names.")
+    out <- matrix(0, nrow = length(target_rows), ncol = ncol(mat),
+      dimnames = list(target_rows, colnames(mat)))
+    if (!nrow(mat)) return(out)
+    idx <- match(rownames(mat), target_rows)
+    if (anyNA(idx)) stop(obj_name, " exposure$volumes has unknown labels.")
+    out[idx, ] <- mat
+    out
+  }
+  remap_graphs <- function(per_sample_graph, old_labels, new_map, obj_name) {
+    lapply(per_sample_graph, function(ps) {
+      labels_chr <- ps$labels_chr
+      if (is.null(labels_chr) && !is.null(ps$labels_id)) {
+        labels_chr <- old_labels[ps$labels_id]
+        ps$labels_chr <- labels_chr
+      }
+      if (is.null(labels_chr)) {
+        stop(obj_name, " per_sample_graph entry is missing labels.")
+      }
+      new_ids <- unname(new_map[as.character(labels_chr)])
+      if (anyNA(new_ids)) stop(obj_name, " per_sample_graph has labels not in merged label_levels.")
+      ps$labels_id <- as.integer(new_ids)
+      ps
+    })
+  }
+  pick_param <- function(name, default = NULL) {
+    val_a <- motif_obj_a$parameters[[name]]
+    val_b <- motif_obj_b$parameters[[name]]
+    if (!is.null(val_a) && !is.null(val_b)) {
+      if (!isTRUE(all.equal(val_a, val_b))) {
+        stop("motif_obj_a and motif_obj_b have different ", name, " values.")
+      }
+      return(val_a)
+    }
+    if (!is.null(val_a)) return(val_a)
+    if (!is.null(val_b)) return(val_b)
+    default
+  }
+
+  samples_a <- as.character(motif_obj_a$sample_name)
+  samples_b <- as.character(motif_obj_b$sample_name)
+  check_samples(samples_a, "motif_obj_a")
+  check_samples(samples_b, "motif_obj_b")
+  dup_samples <- intersect(samples_a, samples_b)
+  if (length(dup_samples)) {
+    stop("Sample names overlap between motif_obj_a and motif_obj_b: ", paste(dup_samples, collapse = ", "))
+  }
+
+  labels_a <- as.character(motif_obj_a$label_levels)
+  labels_b <- as.character(motif_obj_b$label_levels)
+  if (!length(labels_a) || !length(labels_b)) stop("Both motif objects must have label_levels.")
+  if (anyNA(labels_a) || any(labels_a == "")) stop("motif_obj_a label_levels must be non-empty, non-NA.")
+  if (anyNA(labels_b) || any(labels_b == "")) stop("motif_obj_b label_levels must be non-empty, non-NA.")
+  if (anyDuplicated(labels_a)) stop("motif_obj_a label_levels must be unique.")
+  if (anyDuplicated(labels_b)) stop("motif_obj_b label_levels must be unique.")
+  overlap <- intersect(labels_a, labels_b)
+  if (!length(overlap)) {
+    stop("motif_obj_a and motif_obj_b have no overlapping labels; cannot merge.")
+  }
+
+  required_layers <- c("node", "edge", "triangle")
+  missing_a <- setdiff(required_layers, names(motif_obj_a$raw_count))
+  missing_b <- setdiff(required_layers, names(motif_obj_b$raw_count))
+  if (length(missing_a)) stop("motif_obj_a is missing raw_count layers: ", paste(missing_a, collapse = ", "))
+  if (length(missing_b)) stop("motif_obj_b is missing raw_count layers: ", paste(missing_b, collapse = ", "))
+
+  has_wedge_a <- "wedge" %in% names(motif_obj_a$raw_count) && !is.null(motif_obj_a$raw_count$wedge)
+  has_wedge_b <- "wedge" %in% names(motif_obj_b$raw_count) && !is.null(motif_obj_b$raw_count$wedge)
+  if (xor(has_wedge_a, has_wedge_b)) {
+    stop("Cannot merge motif objects when only one includes wedge counts.")
+  }
+  include_wedge <- has_wedge_a
+
+  param_include_a <- motif_obj_a$parameters$include_wedge
+  param_include_b <- motif_obj_b$parameters$include_wedge
+  if (!is.null(param_include_a) && !is.na(param_include_a) && isTRUE(param_include_a) != include_wedge) {
+    stop("motif_obj_a include_wedge parameter does not match raw_count layers.")
+  }
+  if (!is.null(param_include_b) && !is.na(param_include_b) && isTRUE(param_include_b) != include_wedge) {
+    stop("motif_obj_b include_wedge parameter does not match raw_count layers.")
+  }
+
+  max_edge_len <- pick_param("max_edge_len", default = NA_real_)
+  offset_pseudo <- pick_param("offset_pseudo", default = 1)
+  built_from <- pick_param("built_from", default = "cells")
+
+  raw_a <- motif_obj_a$raw_count
+  raw_b <- motif_obj_b$raw_count
+  raw_a$node <- align_node_rows(align_cols(raw_a$node, samples_a, "node", "motif_obj_a"), labels_a, "motif_obj_a")
+  raw_b$node <- align_node_rows(align_cols(raw_b$node, samples_b, "node", "motif_obj_b"), labels_b, "motif_obj_b")
+  raw_a$edge <- align_cols(raw_a$edge, samples_a, "edge", "motif_obj_a")
+  raw_b$edge <- align_cols(raw_b$edge, samples_b, "edge", "motif_obj_b")
+  raw_a$triangle <- align_cols(raw_a$triangle, samples_a, "triangle", "motif_obj_a")
+  raw_b$triangle <- align_cols(raw_b$triangle, samples_b, "triangle", "motif_obj_b")
+  check_layer_keys(raw_a$edge, labels_a, "edge", "motif_obj_a")
+  check_layer_keys(raw_b$edge, labels_b, "edge", "motif_obj_b")
+  check_layer_keys(raw_a$triangle, labels_a, "triangle", "motif_obj_a")
+  check_layer_keys(raw_b$triangle, labels_b, "triangle", "motif_obj_b")
+  if (include_wedge) {
+    raw_a$wedge <- align_cols(raw_a$wedge, samples_a, "wedge", "motif_obj_a")
+    raw_b$wedge <- align_cols(raw_b$wedge, samples_b, "wedge", "motif_obj_b")
+    check_layer_keys(raw_a$wedge, labels_a, "wedge", "motif_obj_a")
+    check_layer_keys(raw_b$wedge, labels_b, "wedge", "motif_obj_b")
+  }
+
+  exp_a <- motif_obj_a$exposure
+  exp_b <- motif_obj_b$exposure
+  exp_a$edges <- align_vector(exp_a$edges, samples_a, "edges", "motif_obj_a")
+  exp_b$edges <- align_vector(exp_b$edges, samples_b, "edges", "motif_obj_b")
+  exp_a$triangles <- align_vector(exp_a$triangles, samples_a, "triangles", "motif_obj_a")
+  exp_b$triangles <- align_vector(exp_b$triangles, samples_b, "triangles", "motif_obj_b")
+  exp_a$cells <- align_vector(exp_a$cells, samples_a, "cells", "motif_obj_a")
+  exp_b$cells <- align_vector(exp_b$cells, samples_b, "cells", "motif_obj_b")
+  exp_a$volumes <- align_volume(exp_a$volumes, labels_a, samples_a, "motif_obj_a")
+  exp_b$volumes <- align_volume(exp_b$volumes, labels_b, samples_b, "motif_obj_b")
+  if (include_wedge) {
+    exp_a$wedge <- align_vector(exp_a$wedge, samples_a, "wedge", "motif_obj_a")
+    exp_b$wedge <- align_vector(exp_b$wedge, samples_b, "wedge", "motif_obj_b")
+  }
+
+  label_levels <- sort(unique(c(labels_a, labels_b)))
+  lab_to_id <- stats::setNames(seq_len(length(label_levels)), label_levels)
+  sample_name <- c(samples_a, samples_b)
+
+  node_rows <- prefix_key(label_levels, "N")
+  edge_rows <- unique(c(rownames(raw_a$edge), rownames(raw_b$edge)))
+  tri_rows <- unique(c(rownames(raw_a$triangle), rownames(raw_b$triangle)))
+  wedge_rows <- if (include_wedge) unique(c(rownames(raw_a$wedge), rownames(raw_b$wedge))) else character(0)
+
+  Y1 <- cbind(
+    expand_sparse_rows(raw_a$node, node_rows, "node", "motif_obj_a"),
+    expand_sparse_rows(raw_b$node, node_rows, "node", "motif_obj_b")
+  )
+  Y2 <- cbind(
+    expand_sparse_rows(raw_a$edge, edge_rows, "edge", "motif_obj_a"),
+    expand_sparse_rows(raw_b$edge, edge_rows, "edge", "motif_obj_b")
+  )
+  Y3 <- cbind(
+    expand_sparse_rows(raw_a$triangle, tri_rows, "triangle", "motif_obj_a"),
+    expand_sparse_rows(raw_b$triangle, tri_rows, "triangle", "motif_obj_b")
+  )
+  raw_count <- list(node = Y1, edge = Y2, triangle = Y3)
+  if (include_wedge) {
+    Yw <- cbind(
+      expand_sparse_rows(raw_a$wedge, wedge_rows, "wedge", "motif_obj_a"),
+      expand_sparse_rows(raw_b$wedge, wedge_rows, "wedge", "motif_obj_b")
+    )
+    raw_count$wedge <- Yw
+  }
+
+  volumes <- cbind(
+    expand_dense_rows(exp_a$volumes, label_levels, "motif_obj_a"),
+    expand_dense_rows(exp_b$volumes, label_levels, "motif_obj_b")
+  )
+  exposure <- list(
+    edges = c(exp_a$edges, exp_b$edges),
+    triangles = c(exp_a$triangles, exp_b$triangles),
+    cells = c(exp_a$cells, exp_b$cells),
+    volumes = volumes
+  )
+  if (include_wedge) exposure$wedge <- c(exp_a$wedge, exp_b$wedge)
+
+  per_sample_graph <- NULL
+  if (is.list(motif_obj_a$per_sample_graph) && length(motif_obj_a$per_sample_graph) &&
+    is.list(motif_obj_b$per_sample_graph) && length(motif_obj_b$per_sample_graph)) {
+    if (!setequal(names(motif_obj_a$per_sample_graph), samples_a) ||
+      !setequal(names(motif_obj_b$per_sample_graph), samples_b)) {
+      if (verbose) message("Dropping per_sample_graph (entries missing or unnamed).")
+    } else {
+      psa <- remap_graphs(motif_obj_a$per_sample_graph[samples_a], labels_a, lab_to_id, "motif_obj_a")
+      psb <- remap_graphs(motif_obj_b$per_sample_graph[samples_b], labels_b, lab_to_id, "motif_obj_b")
+      per_sample_graph <- c(psa, psb)
+      per_sample_graph <- per_sample_graph[sample_name]
+    }
+  }
+
+  merged <- list(
+    sample_name = sample_name,
+    label_levels = label_levels,
+    lab_to_id = lab_to_id,
+    per_sample_graph = per_sample_graph,
+    raw_count = raw_count,
+    exposure = exposure,
+    offsets = NULL,
+    norm_counts = NULL,
+    relative_counts = NULL,
+    offset_part_id = NULL,
+    offset_part_values = NULL,
+    parameters = list(
+      max_edge_len = max_edge_len,
+      include_wedge = include_wedge,
+      offset_pseudo = offset_pseudo,
+      built_from = built_from
+    )
+  )
+
+  if (verbose) message("Recomputing offsets for merged object...")
+  offsets_volume <- compute_offsets_volume(merged, offset_pseudo)
+  hier_null <- compute_offsets_hierarchical(merged, offset_pseudo, mode = "null")
+  offset_results <- list(volume = offsets_volume, hier_null = hier_null)
+  offset_results <- lapply(offset_results, function(res) {
+    list(
+      offsets = res$offsets,
+      parts = res$parts,
+      part_values = res$part_values,
+      norm_counts = normalize_counts_simple(raw_count, res$offsets),
+      relative_counts = compute_relative_counts(raw_count, res$offsets, samples = sample_name, verbose = verbose)
+    )
+  })
+  merged$offsets <- lapply(offset_results, `[[`, "offsets")
+  merged$offset_part_id <- lapply(offset_results, `[[`, "parts")
+  merged$offset_part_values <- lapply(offset_results, `[[`, "part_values")
+  merged$norm_counts <- lapply(offset_results, `[[`, "norm_counts")
+  merged$relative_counts <- lapply(offset_results, `[[`, "relative_counts")
+  merged$parameters$offset_modes <- names(offset_results)
+  merged$parameters$node_tmm_offsets <- isTRUE(offsets_volume$node_tmm_applied)
+  merged$parameters$layer_names <- list(node = "node", edge = "edge", triangle = "triangle", wedge = "wedge")
+  merged$edger <- NULL
+
+  structure(merged, class = c("cellEdgeR_obj", "cellEdgeR_graphs"))
+}
+
+count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedge, verbose, n_cores = 1) {
   if (!inherits(graphs, "cellEdgeR_graphs")) {
     stop("graphs must come from build_cell_graphs().")
   }
   if (!requireNamespace("Matrix", quietly = TRUE)) {
     stop("Package Matrix is required. Install it with install.packages('Matrix').")
   }
-  samples <- graphs$samples
+  if (!is.numeric(n_cores) || length(n_cores) != 1 || n_cores <= 0) {
+    stop("n_cores must be a single positive number.")
+  }
+  run_parallel <- n_cores > 1 && .Platform$OS.type != "windows"
+  samples <- graphs$sample_name
   lab_levels <- graphs$label_levels
   K <- length(lab_levels)
 
@@ -338,14 +732,16 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   }
 
   per_sample <- lapply(samples, function(s) {
-    ps <- graphs$per_sample[[s]]
+    ps <- graphs$per_sample_graph[[s]]
     edges <- filter_edges_by_threshold(ps$edges, ps$edge_len, prune_threshold)
-    list(sample = s, n = ps$n, labels_id = ps$labels_id, labels_chr = ps$labels_chr, edges = edges)
+    list(sample_name = s, n = ps$n, labels_id = ps$labels_id, labels_chr = ps$labels_chr, edges = edges)
   })
   names(per_sample) <- samples
 
-  if (verbose) message("Counting size-1 (cells by label)…")
-  sing_list <- lapply(per_sample, function(ps) {
+  lapply_fun <- if (run_parallel) function(...) parallel::mclapply(..., mc.cores = n_cores) else lapply
+
+  if (verbose) message("Counting node motifs (cells by label)…")
+  sing_list <- lapply_fun(per_sample, function(ps) {
     if (ps$n == 0) return(integer(0))
     tab <- tabulate(ps$labels_id, nbins = K)
     names(tab) <- prefix_key(lab_levels, "N")
@@ -355,21 +751,19 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   dimnames(Y1) <- list(prefix_key(lab_levels, "N"), samples)
   Y1 <- Matrix::Matrix(Y1, sparse = TRUE)
 
-  if (verbose) message("Counting size-2 (edges by unordered label pair)…")
-  pairs_by_sample <- vector("list", length(samples))
-  names(pairs_by_sample) <- samples
-  for (s in samples) {
+  if (verbose) message("Counting edge motifs (unordered label pairs)…")
+  pairs_by_sample <- lapply_fun(samples, function(s) {
     ps <- per_sample[[s]]
     e <- ps$edges
     if (length(e) == 0) {
-      pairs_by_sample[[s]] <- integer(0)
-      next
+      return(integer(0))
     }
     la <- ps$labels_chr[e[, 1]]
     lb <- ps$labels_chr[e[, 2]]
     key <- pair_key_vec(la, lb, prefix = "E")
-    pairs_by_sample[[s]] <- sort(tapply(rep(1L, length(key)), key, sum))
-  }
+    sort(tapply(rep(1L, length(key)), key, sum))
+  })
+  names(pairs_by_sample) <- samples
   pairs_all_keys <- unique(unlist(lapply(pairs_by_sample, names), use.names = FALSE))
   if (length(pairs_all_keys)) {
     total_pairs <- sum(vapply(pairs_by_sample, length, integer(1)))
@@ -403,8 +797,8 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
   }
 
   if (verbose) {
-    message("Counting size-3 (triangles by unordered label triplet) in C++…")
-    if (include_wedges) message("Also collecting wedges (open triplets)…")
+    message("Counting triangle motifs (unordered label triplets) in C++…")
+    if (include_wedge) message("Also collecting wedge (open triplets)…")
   }
   tris_counts_list <- vector("list", length(samples))
   names(tris_counts_list) <- samples
@@ -447,14 +841,10 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
     )
   }
 
-  for (s in samples) {
+  tri_wedge_fun <- function(s) {
     ps <- per_sample[[s]]
     if (nrow(ps$edges) == 0 || ps$n < 3) {
-      tris_counts_list[[s]] <- integer(0)
-      tri_totals[s] <- 0
-      wedge_counts_list[[s]] <- integer(0)
-      wedge_totals[s] <- 0
-      next
+      return(list(tri = integer(0), tri_total = 0, wedge = integer(0), wedge_total = 0))
     }
     out <- count_triangle_labels_cpp(
       n_nodes = ps$n,
@@ -462,33 +852,42 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
       ej = ps$edges[, 2],
       labels = ps$labels_id,
       label_ids = seq_len(K),
-      count_wedges = include_wedges
+      count_wedges = include_wedge
     )
     keys <- as.character(out$keys)
     if (length(keys)) {
       keys_lab <- format_label_triplets(keys, lab_levels, prefix = "T")
-      tris_counts_list[[s]] <- structure(as.integer(out$counts), names = keys_lab)
+      tris <- structure(as.integer(out$counts), names = keys_lab)
     } else {
-      tris_counts_list[[s]] <- integer(0)
+      tris <- integer(0)
     }
-    tri_totals[s] <- as.numeric(out$tri_total)
-    if (include_wedges) {
+    tri_total <- as.numeric(out$tri_total)
+    if (include_wedge) {
       wedge_keys <- as.character(out$wedge_keys)
       if (length(wedge_keys)) {
         wedge_lab <- format_label_triplets(wedge_keys, lab_levels, prefix = "W")
-        wedge_counts_list[[s]] <- structure(as.integer(out$wedge_counts), names = wedge_lab)
+        wedge <- structure(as.integer(out$wedge_counts), names = wedge_lab)
       } else {
-        wedge_counts_list[[s]] <- integer(0)
+        wedge <- integer(0)
       }
-      wedge_totals[s] <- as.numeric(out$wedge_total)
+      wedge_total <- as.numeric(out$wedge_total)
     } else {
-      wedge_counts_list[[s]] <- integer(0)
-      wedge_totals[s] <- 0
+      wedge <- integer(0)
+      wedge_total <- 0
     }
+    list(tri = tris, tri_total = tri_total, wedge = wedge, wedge_total = wedge_total)
+  }
+  tri_res_list <- lapply_fun(samples, tri_wedge_fun)
+  for (i in seq_along(samples)) {
+    s <- samples[i]
+    tris_counts_list[[s]] <- tri_res_list[[i]]$tri
+    tri_totals[s] <- tri_res_list[[i]]$tri_total
+    wedge_counts_list[[s]] <- tri_res_list[[i]]$wedge
+    wedge_totals[s] <- tri_res_list[[i]]$wedge_total
   }
   tris_all_keys <- unique(unlist(lapply(tris_counts_list, names), use.names = FALSE))
   Y3 <- build_sparse_layer(tris_counts_list, tris_all_keys)
-  if (include_wedges) {
+  if (include_wedge) {
     wedge_all_keys <- unique(unlist(lapply(wedge_counts_list, names), use.names = FALSE))
     Yw <- build_sparse_layer(wedge_counts_list, wedge_all_keys)
   }
@@ -516,21 +915,21 @@ count_motifs_from_graphs <- function(graphs, max_edge_len, include_wedges, verbo
       ", pairs=", nrow(Y2),
       ", triangles=", nrow(Y3)
     )
-    if (include_wedges) summary_msg <- paste0(summary_msg, ", wedges=", nrow(Yw))
+    if (include_wedge) summary_msg <- paste0(summary_msg, ", wedge=", nrow(Yw))
     message(summary_msg)
   }
-  counts <- list(size1 = Y1, size2 = Y2, size3 = Y3)
-  if (include_wedges) counts$wedges <- Yw
+  counts <- list(node = Y1, edge = Y2, triangle = Y3)
+  if (include_wedge) counts$wedge <- Yw
   exposure <- list(edges = n_edges, triangles = n_tris, cells = Matrix::colSums(Y1))
   exposure$volumes <- volumes
-  if (include_wedges) exposure$wedges <- wedge_totals
+  if (include_wedge) exposure$wedge <- wedge_totals
 
   list(
-    samples = samples,
+    sample_name = samples,
     label_levels = lab_levels,
-    counts = counts,
+    raw_count = counts,
     exposure = exposure,
-    meta = list(max_edge_len = max_edge_len, include_wedges = include_wedges)
+    parameters = list(max_edge_len = max_edge_len, include_wedge = include_wedge)
   )
 }
 
@@ -585,57 +984,72 @@ build_tri_offsets <- function(Y3, log_vols, log_2m, pseudo) {
   off
 }
 
-build_wedge_offsets <- function(Yw, Y2, log_wedges, pseudo) {
-  if (is.null(log_wedges) || nrow(Yw) == 0) {
+build_wedge_offsets <- function(Yw, log_vols, log_2m, pseudo) {
+  # 1. Check for empty input
+  if (nrow(Yw) == 0) {
     return(matrix(numeric(0), nrow = 0L, ncol = ncol(Yw)))
   }
+
+  # 2. Split labels (A, B, C)
   abc <- split_triplet_labels(rownames(Yw))
   a <- abc[, 1]
   b <- abc[, 2]
   c <- abc[, 3]
-  ABk <- pair_key_vec(a, b, prefix = "E")
-  ACk <- pair_key_vec(a, c, prefix = "E")
-  BCk <- pair_key_vec(b, c, prefix = "E")
-  get_pair_mat <- function(keys) {
-    idx <- match(keys, rownames(Y2))
-    out <- matrix(0, nrow = length(keys), ncol = ncol(Y2), dimnames = list(keys, colnames(Y2)))
-    sel <- which(!is.na(idx))
-    if (length(sel)) out[sel, ] <- as.matrix(Y2[idx[sel], , drop = FALSE])
-    out
-  }
-  AB <- get_pair_mat(ABk)
-  AC <- get_pair_mat(ACk)
-  BC <- get_pair_mat(BCk)
-  off <- log(pmax(AB, pseudo)) + log(pmax(AC, pseudo)) + log(pmax(BC, pseudo))
-  off <- sweep(off, 2, log_wedges[colnames(Yw)], FUN = "-")
+
+  # 3. Map Volumes (exactly like build_tri_offsets)
+  # We use the symmetric product (VolA * VolB * VolC) because Yw 
+  # aggregates all centers (A-B-C, B-A-C, etc.) into one unordered key.
+  vol_a <- matrix(pseudo, nrow = length(a), ncol = ncol(log_vols), dimnames = list(rownames(Yw), colnames(log_vols)))
+  vol_b <- matrix(pseudo, nrow = length(b), ncol = ncol(log_vols), dimnames = list(rownames(Yw), colnames(log_vols)))
+  vol_c <- matrix(pseudo, nrow = length(c), ncol = ncol(log_vols), dimnames = list(rownames(Yw), colnames(log_vols)))
+  
+  idx_a <- match(a, rownames(log_vols))
+  idx_b <- match(b, rownames(log_vols))
+  idx_c <- match(c, rownames(log_vols))
+  
+  sel_a <- which(!is.na(idx_a))
+  sel_b <- which(!is.na(idx_b))
+  sel_c <- which(!is.na(idx_c))
+  
+  if (length(sel_a)) vol_a[sel_a, ] <- exp(log_vols[idx_a[sel_a], , drop = FALSE])
+  if (length(sel_b)) vol_b[sel_b, ] <- exp(log_vols[idx_b[sel_b], , drop = FALSE])
+  if (length(sel_c)) vol_c[sel_c, ] <- exp(log_vols[idx_c[sel_c], , drop = FALSE])
+
+  # 4. Compute Offset
+  # Numerator: VolA * VolB * VolC (Scale N^3)
+  off <- log(pmax(vol_a, pseudo)) + log(pmax(vol_b, pseudo)) + log(pmax(vol_c, pseudo))
+
+  # Denominator: (2 * Edges)^2 (Scale N^2) -> Result Scale N
+  off <- sweep(off, 2, 2 * log_2m[colnames(Yw)], FUN = "-")
+  
   dimnames(off) <- dimnames(Yw)
   off
 }
 
-compute_motif_offsets <- function(motif_obj, pseudo) {
-  samples <- motif_obj$samples
-  Y1 <- motif_obj$counts$size1
-  Y2 <- motif_obj$counts$size2
-  Y3 <- motif_obj$counts$size3
-  Yw <- motif_obj$counts$wedges
-
-  log_vols <- log(pmax(motif_obj$exposure$volumes, pseudo))
+compute_offsets_volume <- function(motif_obj, pseudo) {
+  samples <- motif_obj$sample_name
+  Y1 <- motif_obj$raw_count$node
+  Y2 <- motif_obj$raw_count$edge
+  Y3 <- motif_obj$raw_count$triangle
+  Yw <- motif_obj$raw_count$wedge
   log_2m <- log(pmax(2 * as.numeric(motif_obj$exposure$edges), 1))
   names(log_2m) <- samples
-  log_tris <- log(pmax(as.numeric(motif_obj$exposure$triangles), 1))
-  names(log_tris) <- samples
-  log_wedges <- NULL
-  if (!is.null(motif_obj$exposure$wedges)) {
-    log_wedges <- log(pmax(as.numeric(motif_obj$exposure$wedges), 1))
-    names(log_wedges) <- samples
-  }
-
+  log_vols <- log(pmax(motif_obj$exposure$volumes, pseudo))
   offset2 <- build_pair_offsets(Y2, log_vols, log_2m, pseudo)
   offset3 <- build_tri_offsets(Y3, log_vols, log_2m, pseudo)
-  offsetw <- NULL
-  if (!is.null(Yw)) {
-    offsetw <- build_wedge_offsets(Yw, Y2, log_wedges, pseudo)
-  }
+  offsetw <- if (!is.null(Yw)) build_wedge_offsets(Yw, log_vols, log_2m, pseudo) else NULL
+  parts2 <- if (nrow(Y2)) {
+    ab <- split_pair_labels(rownames(Y2))
+    setNames(lapply(seq_len(nrow(Y2)), function(i) c(paste0("vol_", ab[i, 1]), paste0("vol_", ab[i, 2]), "2m")), rownames(Y2))
+  } else list()
+  parts3 <- if (nrow(Y3)) {
+    abc <- split_triplet_labels(rownames(Y3))
+    setNames(lapply(seq_len(nrow(Y3)), function(i) c(paste0("vol_", abc[i, 1]), paste0("vol_", abc[i, 2]), paste0("vol_", abc[i, 3]), "2m")), rownames(Y3))
+  } else list()
+  partsw <- if (!is.null(Yw) && nrow(Yw)) {
+    abc <- split_triplet_labels(rownames(Yw))
+    setNames(lapply(seq_len(nrow(Yw)), function(i) c(paste0("vol_", abc[i, 1]), paste0("vol_", abc[i, 2]), paste0("vol_", abc[i, 3]), "2m")), rownames(Yw))
+  } else list()
   log_cells <- matrix(
     log(pmax(as.numeric(motif_obj$exposure$cells), 1)),
     nrow = max(1, nrow(Y1)),
@@ -643,12 +1057,141 @@ compute_motif_offsets <- function(motif_obj, pseudo) {
     byrow = TRUE,
     dimnames = list(rownames(Y1), samples)
   )
-  list(
-    size1 = Matrix::Matrix(log_cells, sparse = TRUE, dimnames = dimnames(Y1)),
-    size2 = Matrix::Matrix(offset2, sparse = TRUE, dimnames = dimnames(Y2)),
-    size3 = Matrix::Matrix(offset3, sparse = TRUE, dimnames = dimnames(Y3)),
-    wedges = if (!is.null(offsetw)) Matrix::Matrix(offsetw, sparse = TRUE, dimnames = dimnames(Yw)) else NULL
+  node_tmm_applied <- FALSE
+  if (!is.null(Y1) && nrow(Y1)) {
+    y_nodes <- as.matrix(Y1)
+    if (!identical(colnames(y_nodes), samples)) y_nodes <- y_nodes[, samples, drop = FALSE]
+    dge_nodes <- edgeR::calcNormFactors(edgeR::DGEList(counts = y_nodes), method = "TMM")
+    norm_factors <- dge_nodes$samples$norm.factors
+    if (!is.null(norm_factors)) {
+      if (!is.null(names(norm_factors))) norm_factors <- norm_factors[samples]
+      if (length(norm_factors) == length(samples) &&
+        all(is.finite(norm_factors)) && all(norm_factors > 0)) {
+        log_cells <- sweep(log_cells, 2, log(norm_factors), "+")
+        node_tmm_applied <- TRUE
+      }
+    }
+  }
+  offsets <- list(
+    node = Matrix::Matrix(log_cells, sparse = TRUE, dimnames = dimnames(Y1)),
+    edge = Matrix::Matrix(offset2, sparse = TRUE, dimnames = dimnames(Y2)),
+    triangle = Matrix::Matrix(offset3, sparse = TRUE, dimnames = dimnames(Y3)),
+    wedge = if (!is.null(offsetw)) Matrix::Matrix(offsetw, sparse = TRUE, dimnames = dimnames(Yw)) else NULL
   )
+  list(
+    offsets = offsets,
+    parts = list(edge = parts2, triangle = parts3, wedge = partsw),
+    part_values = list(volumes = motif_obj$exposure$volumes, two_m = 2 * as.numeric(motif_obj$exposure$edges)),
+    node_tmm_applied = node_tmm_applied
+  )
+}
+
+fit_edge_posterior <- function(Y2, offset_edge, design) {
+  dge <- edgeR::DGEList(counts = Y2)
+  dge <- edgeR::calcNormFactors(dge, method = "TMM")
+  dge$offset <- as.matrix(offset_edge)
+  fit <- tryCatch({
+    edgeR::estimateGLMRobustDisp(dge, design = design)
+  }, error = function(e) NULL)
+  if (is.null(fit)) return(NULL)
+  fit <- tryCatch(edgeR::glmQLFit(fit, design = design), error = function(e) NULL)
+  fit
+}
+
+build_hier_offsets_from_mu <- function(motif_obj, pseudo, edge_mu) {
+  Y1 <- motif_obj$raw_count$node
+  Y2 <- motif_obj$raw_count$edge
+  Y3 <- motif_obj$raw_count$triangle
+  Yw <- motif_obj$raw_count$wedge
+  samples <- motif_obj$sample_name
+  log_2m <- log(pmax(2 * as.numeric(motif_obj$exposure$edges), 1))
+  names(log_2m) <- samples
+  log_vols <- log(pmax(motif_obj$exposure$volumes, pseudo))
+  offset2 <- build_pair_offsets(Y2, log_vols, log_2m, pseudo) # edges stay volume-based
+  tri_from_mu <- function(Y, edge_mat) {
+    if (is.null(Y) || nrow(Y) == 0) {
+      return(matrix(numeric(0), nrow = 0, ncol = ncol(edge_mat), dimnames = list(character(), colnames(edge_mat))))
+    }
+    abc <- split_triplet_labels(rownames(Y))
+    get_mu <- function(keys) {
+      idx <- match(keys, rownames(edge_mat))
+      out <- matrix(pseudo, nrow = length(keys), ncol = ncol(edge_mat), dimnames = list(keys, colnames(edge_mat)))
+      sel <- which(!is.na(idx))
+      if (length(sel)) out[sel, ] <- as.matrix(edge_mat[idx[sel], , drop = FALSE])
+      out
+    }
+    ABk <- pair_key_vec(abc[, 1], abc[, 2], prefix = "E")
+    ACk <- pair_key_vec(abc[, 1], abc[, 3], prefix = "E")
+    BCk <- pair_key_vec(abc[, 2], abc[, 3], prefix = "E")
+    AB <- get_mu(ABk); AC <- get_mu(ACk); BC <- get_mu(BCk)
+    off <- log(pmax(AB, pseudo)) + log(pmax(AC, pseudo)) + log(pmax(BC, pseudo))
+    off <- sweep(off, 2, 2 * log_2m[colnames(Y)], FUN = "-")
+    dimnames(off) <- dimnames(Y)
+    off
+  }
+  offset3 <- tri_from_mu(Y3, edge_mu)
+  offsetw <- tri_from_mu(Yw, edge_mu)
+  parts2 <- if (nrow(Y2)) {
+    ab <- split_pair_labels(rownames(Y2))
+    setNames(lapply(seq_len(nrow(Y2)), function(i) c(paste0("vol_", ab[i, 1]), paste0("vol_", ab[i, 2]), "2m")), rownames(Y2))
+  } else list()
+  parts3 <- if (nrow(Y3)) {
+    abc <- split_triplet_labels(rownames(Y3))
+    setNames(lapply(seq_len(nrow(Y3)), function(i) c(pair_key_vec(abc[i, 1], abc[i, 2], "E"), pair_key_vec(abc[i, 1], abc[i, 3], "E"), pair_key_vec(abc[i, 2], abc[i, 3], "E"), "2m")), rownames(Y3))
+  } else list()
+  partsw <- if (!is.null(Yw) && nrow(Yw)) {
+    abc <- split_triplet_labels(rownames(Yw))
+    setNames(lapply(seq_len(nrow(Yw)), function(i) c(pair_key_vec(abc[i, 1], abc[i, 2], "E"), pair_key_vec(abc[i, 1], abc[i, 3], "E"), pair_key_vec(abc[i, 2], abc[i, 3], "E"), "2m")), rownames(Yw))
+  } else list()
+  log_cells <- matrix(
+    log(pmax(as.numeric(motif_obj$exposure$cells), 1)),
+    nrow = max(1, nrow(Y1)),
+    ncol = length(samples),
+    byrow = TRUE,
+    dimnames = list(rownames(Y1), samples)
+  )
+  if (!is.null(Y1) && nrow(Y1)) {
+    y_nodes <- as.matrix(Y1)
+    if (!identical(colnames(y_nodes), samples)) y_nodes <- y_nodes[, samples, drop = FALSE]
+    dge_nodes <- edgeR::calcNormFactors(edgeR::DGEList(counts = y_nodes), method = "TMM")
+    norm_factors <- dge_nodes$samples$norm.factors
+    if (!is.null(norm_factors)) {
+      if (!is.null(names(norm_factors))) norm_factors <- norm_factors[samples]
+      if (length(norm_factors) == length(samples) &&
+        all(is.finite(norm_factors)) && all(norm_factors > 0)) {
+        log_cells <- sweep(log_cells, 2, log(norm_factors), "+")
+      }
+    }
+  }
+  offsets <- list(
+    node = Matrix::Matrix(log_cells, sparse = TRUE, dimnames = dimnames(Y1)),
+    edge = Matrix::Matrix(offset2, sparse = TRUE, dimnames = dimnames(Y2)),
+    triangle = Matrix::Matrix(offset3, sparse = TRUE, dimnames = dimnames(Y3)),
+    wedge = if (!is.null(offsetw)) Matrix::Matrix(offsetw, sparse = TRUE, dimnames = dimnames(Yw)) else NULL
+  )
+  list(
+    offsets = offsets,
+    parts = list(edge = parts2, triangle = parts3, wedge = partsw),
+    part_values = list(two_m = 2 * as.numeric(motif_obj$exposure$edges), edge_mu = edge_mu)
+  )
+}
+
+compute_offsets_hierarchical <- function(motif_obj, pseudo, mode = c("null", "full"), design = NULL) {
+  mode <- match.arg(mode)
+  # Fit edge layer to get posterior means
+  volume_offsets <- compute_offsets_volume(motif_obj, pseudo)$offsets
+  design_null <- matrix(1, nrow = length(motif_obj$sample_name), ncol = 1)
+  colnames(design_null) <- "Intercept"
+  des <- if (mode == "null") design_null else design
+  fit <- fit_edge_posterior(motif_obj$raw_count$edge, volume_offsets$edge, des)
+  if (is.null(fit)) {
+    if (mode == "null") warning("edgeR fit failed for hierarchical offsets (null); falling back to counts.")
+    else warning("edgeR fit failed for hierarchical offsets (full); falling back to counts.")
+    edge_mu <- as.matrix(motif_obj$raw_count$edge)
+  } else {
+    edge_mu <- fit$fitted.values
+  }
+  build_hier_offsets_from_mu(motif_obj, pseudo, edge_mu)
 }
 
 normalize_counts_simple <- function(counts, offsets) {
@@ -659,17 +1202,14 @@ normalize_counts_simple <- function(counts, offsets) {
     Matrix::Matrix(as.matrix(Y) / exp(as.matrix(off)), sparse = TRUE, dimnames = dimnames(Y))
   }
   list(
-    size1 = norm_layer(counts$size1, offsets$size1),
-    size2 = norm_layer(counts$size2, offsets$size2),
-    size3 = norm_layer(counts$size3, offsets$size3),
-    wedges = if (!is.null(counts$wedges) && !is.null(offsets$wedges)) norm_layer(counts$wedges, offsets$wedges) else NULL
+    node = norm_layer(counts$node, offsets$node),
+    edge = norm_layer(counts$edge, offsets$edge),
+    triangle = norm_layer(counts$triangle, offsets$triangle),
+    wedge = if (!is.null(counts$wedge) && !is.null(offsets$wedge)) norm_layer(counts$wedge, offsets$wedge) else NULL
   )
 }
 
-compute_relative_counts <- function(motif_obj, pseudo, verbose = FALSE, eps = 0.5) {
-  samples <- motif_obj$samples
-  offsets <- motif_obj$offsets
-  counts <- motif_obj$counts
+compute_relative_counts <- function(counts, offsets, samples, verbose = FALSE, eps = 1) {
   design_null <- matrix(1, nrow = length(samples), ncol = 1)
   colnames(design_null) <- "Intercept"
 
@@ -685,7 +1225,7 @@ compute_relative_counts <- function(motif_obj, pseudo, verbose = FALSE, eps = 0.
     dge <- edgeR::DGEList(counts = Y)
     dge <- edgeR::calcNormFactors(dge)
     dge$offset <- as.matrix(off)
-    dge <- tryCatch(edgeR::estimateDisp(dge, design = design_null), error = function(e) NULL)
+    dge <- tryCatch(edgeR::estimateGLMRobustDisp(dge, design = design_null), error = function(e) NULL)
     if (is.null(dge)) {
       warning("edgeR dispersion estimation failed for model residuals; returning zeros.")
       return(Matrix::Matrix(0, nrow = nrow(Y), ncol = ncol(Y), sparse = TRUE, dimnames = dimnames(Y)))
@@ -701,337 +1241,870 @@ compute_relative_counts <- function(motif_obj, pseudo, verbose = FALSE, eps = 0.
   }
 
   list(
-    size1 = fit_layer(counts$size1, offsets$size1),
-    size2 = fit_layer(counts$size2, offsets$size2),
-    size3 = fit_layer(counts$size3, offsets$size3),
-    wedges = if (!is.null(counts$wedges) && !is.null(offsets$wedges)) fit_layer(counts$wedges, offsets$wedges) else NULL
+    node = fit_layer(counts$node, offsets$node),
+    edge = fit_layer(counts$edge, offsets$edge),
+    triangle = fit_layer(counts$triangle, offsets$triangle),
+    wedge = if (!is.null(counts$wedge) && !is.null(offsets$wedge)) fit_layer(counts$wedge, offsets$wedge) else NULL
   )
 }
 
-
-#' edgeR-normalized motif counts with optional null expectations
+#' Retrieve normalized counts as a single data frame
 #'
-#' Fits edgeR models per motif layer using supplied offsets and design, then returns normalized
-#' counts or log-residual diagnostics relative to the fitted means. Useful when you want expectations
-#' under a specific design (optionally removing a coefficient) rather than raw offsets alone.
+#' Pulls all normalized motifs from a cellgraph (`cellEdgeR_obj`) into one data frame by row-binding layers.
 #'
-#' @param motif_obj Output of [count_motifs_graphs()].
-#' @param pseudo Small positive constant added to counts in log/ratio computations.
-#' @param return_log Logical; if `TRUE`, returns `log(obs + eps) - log(fitted + eps)`, otherwise `(obs + eps)/(fitted + eps)`.
-#' @param eps Small stabilizer for ratios/logs.
-#' @return List with normalized matrices (`size1`, `size2`, `size3`) 
-#' @keywords internal
-edgeRnorm_motif_counts  <- function(
-  motif_obj,
-  pseudo = 0.5,
-  return_log = TRUE,
-  eps = 0.5
-) {
-  .Deprecated("count_motifs_graphs()$norm_counts")
-  offsets <- if (!is.null(motif_obj$offsets)) motif_obj$offsets else compute_motif_offsets(motif_obj, pseudo)
-  base <- normalize_counts_simple(motif_obj$counts, offsets)
-  if (!return_log) return(base)
-  to_log <- function(mat) {
-    if (is.null(mat) || nrow(mat) == 0) return(mat)
-    Matrix::Matrix(log2(as.matrix(mat) + eps), sparse = TRUE, dimnames = dimnames(mat))
+#' @param cellgraph A `cellEdgeR_obj` returned by [count_motifs_graphs()].
+#' @param offset_mode Which offset mode to pull normalized counts from; defaults to the first available when multiple are stored.
+#' @param log2 Logical; if `TRUE` (default), apply `log2(count + pseudocount)` to the normalized counts.
+#' @param pseudocount Small positive value added before log transformation (default 1 to match offset construction).
+#' @return A matrix/data frame with samples as rownames and motifs as column names.
+#' @export
+get_norm_counts <- function(cellgraph, offset_mode = NULL, log2 = TRUE, pseudocount = 1) {
+  validate_motif_obj(cellgraph, require_offsets = FALSE)
+  norm_container <- cellgraph$norm_counts
+  if (is.null(norm_container) || !is.list(norm_container)) {
+    stop("cellgraph is missing norm_counts; run count_motifs_graphs() first.")
   }
-  list(
-    size1 = to_log(base$size1),
-    size2 = to_log(base$size2),
-    size3 = to_log(base$size3),
-    wedges = to_log(base$wedges)
+  # Handle legacy single-layer vs multi-offset storage
+  if (all(c("node", "edge", "triangle") %in% names(norm_container))) {
+    mats <- norm_container
+  } else {
+    avail <- names(norm_container)
+    if (is.null(offset_mode)) offset_mode <- avail[1]
+    if (!offset_mode %in% avail) stop("offset_mode not found in norm_counts; available: ", paste(avail, collapse = ", "))
+    mats <- norm_container[[offset_mode]]
+  }
+  mats <- Filter(function(m) !is.null(m) && nrow(m) > 0, mats)
+  if (!length(mats)) return(data.frame())
+  transform_mat <- function(m) {
+    mat <- as.matrix(m)
+    if (log2) mat <- base::log2(mat + pseudocount)
+    mat
+  }
+  mats <- lapply(mats, transform_mat)
+  combined <- do.call(rbind, mats) # motifs in rows, samples in columns
+  out <- t(combined)               # samples in rows, motifs in columns
+  data.frame(out, check.names = FALSE)
+}
+
+#' Retrieve motif values (raw, normalized)
+#'
+#' Pull raw counts or normalized counts for a motif (or its hierarchical submotifs)
+#' into a samples-by-motifs data frame.
+#'
+#' @param cellgraph A `cellEdgeR_obj` returned by [count_motifs_graphs()].
+#' @param motif_key Character vector of motif keys (e.g., `E_A_B`, `T_A_B_C`). If `NULL`, return all motifs.
+#' @param include_submotifs Logical; if `TRUE`, include submotifs referenced by hierarchical offsets.
+#' @param value Which value to return: `raw` or `norm`.
+#' @param offset_mode Offset set name to use for normalized values; only `volume` is supported to
+#'   match the hybrid modeling offsets.
+#' @return A data frame with sample names as rownames and one column per motif.
+#'   When `include_submotifs = TRUE`, requested motifs appear first, followed by unique submotifs.
+#' @details
+#' Normalized values are computed directly from the selected offset set so they match the offsets used by
+#' [motif_edger()] (including node TMM adjustments when present).
+#' @export
+get_motif_values <- function(
+  cellgraph,
+  motif_key = NULL,
+  include_submotifs = FALSE,
+  value = c("raw", "norm"),
+  offset_mode = NULL
+) {
+  validate_motif_obj(cellgraph, require_offsets = FALSE)
+  samples <- cellgraph$sample_name
+  value <- match.arg(value)
+
+  raw_container <- cellgraph$raw_count
+  if (is.null(raw_container) || !is.list(raw_container)) {
+    stop("cellgraph is missing raw_count; run count_motifs_graphs() first.")
+  }
+  motif_type_map <- character()
+  all_motifs <- character()
+  for (layer in names(raw_container)) {
+    mat <- raw_container[[layer]]
+    if (is.null(mat)) next
+    keys <- rownames(mat)
+    if (is.null(keys)) stop("raw_count$", layer, " is missing row names.")
+    if (!length(keys)) next
+    all_motifs <- c(all_motifs, keys)
+    motif_type_map <- c(motif_type_map, stats::setNames(rep(layer, length(keys)), keys))
+  }
+  all_motifs <- unique(all_motifs)
+  if (!length(all_motifs)) {
+    out <- data.frame(row.names = cellgraph$sample_name)
+    return(out)
+  }
+
+  if (!is.null(motif_key)) {
+    motif_key <- as.character(motif_key)
+    motif_key <- motif_key[!duplicated(motif_key)]
+    missing <- setdiff(motif_key, all_motifs)
+    if (length(missing)) {
+      stop("motif_key not found in raw_count: ", paste(missing, collapse = ", "))
+    }
+  }
+  if (include_submotifs && is.null(motif_key)) {
+    stop("include_submotifs requires motif_key.")
+  }
+
+  needs_offsets <- value == "norm"
+  offset_mode_use <- NULL
+  if (needs_offsets) {
+    modes <- available_offset_modes(cellgraph)
+    if (!length(modes)) stop("cellgraph is missing offsets; run count_motifs_graphs() first.")
+    offset_mode_use <- if (is.null(offset_mode)) "volume" else offset_mode
+    if (!identical(offset_mode_use, "volume")) {
+      stop("get_motif_values only supports offset_mode = \"volume\" to match hybrid normalization.")
+    }
+    if (!offset_mode_use %in% modes) {
+      stop("offset_mode not found; available: ", paste(modes, collapse = ", "))
+    }
+  }
+
+  if (is.null(motif_key)) {
+    ordered_motifs <- all_motifs
+  } else if (!include_submotifs) {
+    ordered_motifs <- motif_key
+  } else {
+    unique_keep <- function(x) x[!duplicated(x)]
+    submotifs_for_key <- function(key) {
+      layer <- motif_type_map[[key]]
+      if (is.null(layer) || is.na(layer)) return(character())
+      labels <- strsplit(strip_prefix(key), "_", fixed = TRUE)[[1]]
+      if (layer %in% c("triangle", "wedge")) {
+        if (length(labels) != 3L) return(character())
+        a <- labels[1]
+        b <- labels[2]
+        c <- labels[3]
+        c(
+          pair_key_vec(a, b, prefix = "E"),
+          pair_key_vec(a, c, prefix = "E"),
+          pair_key_vec(b, c, prefix = "E")
+        )
+      } else if (layer == "edge") {
+        if (length(labels) != 2L) return(character())
+        prefix_key(labels, "N")
+      } else {
+        character()
+      }
+    }
+    submotifs <- unique_keep(unlist(lapply(motif_key, submotifs_for_key), use.names = FALSE))
+    submotifs <- intersect(submotifs, all_motifs)
+    ordered_motifs <- c(motif_key, setdiff(submotifs, motif_key))
+  }
+
+  if (!length(ordered_motifs)) {
+    out <- data.frame(row.names = cellgraph$sample_name)
+    return(out)
+  }
+
+  select_mode_container <- function(container, label) {
+    if (is.null(container) || !is.list(container)) {
+      stop("cellgraph is missing ", label, "; run count_motifs_graphs() first.")
+    }
+    if (all(c("node", "edge", "triangle") %in% names(container))) {
+      if (!is.null(offset_mode_use) && offset_mode_use != "volume") {
+        stop(label, " does not contain offset_mode ", offset_mode_use, ".")
+      }
+      return(list(mats = container, mode = if (is.null(offset_mode_use)) "volume" else offset_mode_use))
+    }
+    modes <- names(container)
+    if (is.null(offset_mode_use)) offset_mode_use <- modes[1]
+    if (!offset_mode_use %in% modes) {
+      stop("offset_mode not found in ", label, "; available: ", paste(modes, collapse = ", "))
+    }
+    list(mats = container[[offset_mode_use]], mode = offset_mode_use)
+  }
+
+  tmm_baked <- isTRUE(cellgraph$parameters$node_tmm_offsets)
+
+  matrix_from_layers <- function(container, motifs, samples, fill = NA_real_) {
+    mat <- matrix(fill, nrow = length(motifs), ncol = length(samples),
+      dimnames = list(motifs, samples))
+    for (layer in names(container)) {
+      src <- container[[layer]]
+      if (is.null(src) || !nrow(src)) next
+      if (is.null(rownames(src))) stop("Container layer is missing row names.")
+      if (!identical(colnames(src), samples)) {
+        if (setequal(colnames(src), samples)) {
+          src <- src[, samples, drop = FALSE]
+        } else {
+          stop("Container layer columns do not match sample names.")
+        }
+      }
+      hit <- intersect(rownames(src), motifs)
+      if (!length(hit)) next
+      sub <- as.matrix(src[hit, samples, drop = FALSE])
+      mat[hit, ] <- sub
+    }
+    mat
+  }
+
+  get_offsets_for_mode <- function() {
+    sel <- select_mode_container(cellgraph$offsets, "offsets")
+    offsets_layers <- sel$mats
+    if (tmm_baked || !offset_mode_use %in% c("volume", "hier_null")) return(offsets_layers)
+    if (is.null(offsets_layers$node) || is.null(raw_container$node) || nrow(raw_container$node) == 0) {
+      return(offsets_layers)
+    }
+    node_counts <- raw_container$node
+    if (is.null(colnames(node_counts))) stop("raw_count$node is missing column names.")
+    if (!identical(colnames(node_counts), samples)) {
+      if (setequal(colnames(node_counts), samples)) {
+        node_counts <- node_counts[, samples, drop = FALSE]
+      } else {
+        stop("raw_count$node columns do not match sample names.")
+      }
+    }
+    node_offsets <- offsets_layers$node
+    if (is.null(colnames(node_offsets))) stop("offsets$node is missing column names.")
+    if (!identical(colnames(node_offsets), samples)) {
+      if (setequal(colnames(node_offsets), samples)) {
+        node_offsets <- node_offsets[, samples, drop = FALSE]
+      } else {
+        stop("offsets$node columns do not match sample names.")
+      }
+    }
+    dge_nodes <- edgeR::calcNormFactors(edgeR::DGEList(counts = as.matrix(node_counts)), method = "TMM")
+    norm_factors <- dge_nodes$samples$norm.factors
+    if (!is.null(names(norm_factors))) norm_factors <- norm_factors[samples]
+    if (length(norm_factors) == length(samples) &&
+      all(is.finite(norm_factors)) && all(norm_factors > 0)) {
+      node_mat <- as.matrix(node_offsets)
+      node_mat <- sweep(node_mat, 2, log(norm_factors), "+")
+      offsets_layers$node <- Matrix::Matrix(node_mat, sparse = TRUE, dimnames = dimnames(node_mat))
+    }
+    offsets_layers
+  }
+
+  value_mat <- switch(
+    value,
+    raw = matrix_from_layers(raw_container, ordered_motifs, samples, fill = 0),
+    norm = {
+      offsets_layers <- get_offsets_for_mode()
+      offset_mat <- matrix_from_layers(offsets_layers, ordered_motifs, samples, fill = NA_real_)
+      raw_mat <- matrix_from_layers(raw_container, ordered_motifs, samples, fill = 0)
+      raw_mat / exp(offset_mat)
+    }
   )
-}
 
-#' @rdname edgeRnorm_motif_counts
-#' @keywords internal
-normalize_motif_counts <- function(
-  motif_obj,
-  pseudo = 0.5,
-  sample_df = NULL,
-  design_formula = "~ 1",
-  use_null = TRUE,
-  return_log = FALSE,
-  eps = 0.5,
-  verbose = FALSE
-) {
-  .Deprecated("count_motifs_graphs()$norm_counts")
-  if (is.null(motif_obj$norm_counts)) {
-    offsets <- compute_motif_offsets(motif_obj, pseudo)
-    return(normalize_counts_simple(motif_obj$counts, offsets))
-  }
-  motif_obj$norm_counts
+  out <- as.data.frame(t(value_mat), check.names = FALSE)
+  rownames(out) <- samples
+  out
 }
 
 
-
-#' Differential motif testing with edgeR and optional FDR control
+#' Differential motif testing with edgeR (store fits/tests)
 #'
-#' Fit edgeR QL GLMs for each motif size using offsets derived from expected counts,
-#' apply a standard BH correction by default, and optionally run hierarchical DAG-based control
-#' (the historical DAGGER workflow).
+#' Fit edgeR QL models across stacked motifs and store the full and intercept-only (null)
+#' fits/tests inside the motif object. Use [top_motifs()] to extract tables.
 #'
-#' @param motif_obj Output list from [count_motifs_graphs()].
-#' @param sample_df Data frame with sample metadata; rownames must match sample IDs.
+#' @param cellgraph Output list from [count_motifs_graphs()].
+#' @param sample_df Data frame with sample metadata; rownames must match `cellgraph$sample_name`.
 #' @param design_formula Formula string passed to `model.matrix`, e.g. `~ condition + batch`.
-#' @param coef Target coefficient (name or column index) for the design matrix.
-#' @param pseudo Small positive number to avoid zeros in log offsets.
-#' @param alpha FDR threshold used when `fdr_method = "dagger"`.
 #' @param verbose Logical; print progress.
-#' @param fdr_method Character string selecting the multiple-testing correction strategy;
-#'   `"bh"` (default) returns layerwise BH-adjusted p-values, `"dagger"` runs the
-#'   DAGGER-style hierarchical correction.
+#' @param merge_triplets Logical; if `TRUE`, merges triangle and wedge motifs under the `TW_` prefix before fitting.
+#' @param strategies Character vector of strategies to run; defaults to `volume`, `hierarchical`, and `ancova`.
+#'   Strategies are stored under `cellgraph$edger$strategies`.
 #'
-#' @return A list with `design`, `results` (data frames for each size),
-#'   `fdr` metadata describing the method/threshold, and, when applicable, DAG nodes and edges.
+#' @return The input `cellgraph` augmented with `edger`, containing:
+#' \describe{
+#' \item{strategies}{Named list of strategy results (`volume`, `hierarchical`, `ancova`).}
+#' \item{motif_info}{Data frame with `motif` and `motif_type` for joins.}
+#' \item{sample_df}{Sample metadata used to build the design.}
+#' \item{merge_triplets}{Whether triangles+wedge were merged.}
+#' }
 #' @export
 motif_edger <- function(
-  motif_obj,
+  cellgraph,
   sample_df,
   design_formula,
-  coef = NULL,
-  coef_variable = NULL,
-  coef_level = NULL,
-  pseudo = 0.5,
-  alpha = 0.05,
   verbose = TRUE,
-  fdr_method = c("bh", "dagger"),
-  merge_triplets = FALSE
+  merge_triplets = FALSE,
+  strategies = c("volume", "hierarchical", "ancova")
 ) {
   #"edgeR", "Matrix"
-  
-  validate_motif_obj(motif_obj, require_offsets = TRUE)
-  samples <- motif_obj$samples
-  if (is.null(rownames(sample_df))) stop("sample_df must have rownames = sample IDs")
+  validate_motif_obj(cellgraph, require_offsets = TRUE)
+  samples <- cellgraph$sample_name
+  if (is.null(rownames(sample_df))) stop("sample_df must have rownames = sample names")
+  missing_rows <- setdiff(samples, rownames(sample_df))
+  if (length(missing_rows)) {
+    stop("sample_df is missing rows for: ", paste(missing_rows, collapse = ", "))
+  }
   sample_df <- as.data.frame(sample_df[samples, , drop = FALSE])
-  design <- stats::model.matrix(stats::as.formula(design_formula), data = sample_df)
-  resolve_coef <- function() {
-    if (!is.null(coef)) {
-      if (is.character(coef)) {
-        idx <- match(coef, colnames(design))
-        if (is.na(idx)) stop("coef name not found.")
-        return(idx)
+  sample_df[] <- lapply(sample_df, function(col) if (is.character(col)) factor(col) else col)
+
+  formula_obj <- stats::as.formula(design_formula)
+  used_vars <- all.vars(formula_obj)
+  if ("." %in% used_vars) used_vars <- names(sample_df)
+  if (length(used_vars)) {
+    single_level <- used_vars[vapply(sample_df[, used_vars, drop = FALSE], function(col) {
+      if (is.factor(col) || is.character(col)) length(unique(as.character(col))) < 2 else FALSE
+    }, logical(1))]
+    if (length(single_level)) {
+      stop("Design variable(s) have fewer than 2 levels after matching samples: ",
+        paste(single_level, collapse = ", "),
+        ". Provide at least two groups or use '~ 1' for intercept-only.")
+    }
+  }
+
+  design <- stats::model.matrix(formula_obj, data = sample_df)
+  if (ncol(design) == 0) stop("Design formula produced an empty model matrix.")
+  if (is.null(colnames(design))) colnames(design) <- paste0("coef", seq_len(ncol(design)))
+  design_null <- stats::model.matrix(~ 1, data = sample_df)
+  if (is.null(colnames(design_null))) colnames(design_null) <- "(Intercept)"
+
+  counts <- cellgraph$raw_count
+  strategies <- unique(as.character(strategies))
+  strategies <- intersect(strategies, c("volume", "hierarchical", "ancova"))
+  if (!length(strategies)) stop("strategies must include at least one of: volume, hierarchical, ancova.")
+
+  align_counts <- function(mat, layer) {
+    if (is.null(mat) || nrow(mat) == 0) return(NULL)
+    if (is.null(colnames(mat))) stop("raw_count$", layer, " is missing column names.")
+    if (!identical(colnames(mat), samples)) mat <- mat[, samples, drop = FALSE]
+    mat
+  }
+  merge_triplet_mats <- function(mat_tri, mat_wedge) {
+    mats <- list()
+    if (!is.null(mat_tri) && nrow(mat_tri)) {
+      rownames(mat_tri) <- sub("^[^_]+_", "TW_", rownames(mat_tri))
+      mats[[length(mats) + 1]] <- mat_tri
+    }
+    if (!is.null(mat_wedge) && nrow(mat_wedge)) {
+      rownames(mat_wedge) <- sub("^[^_]+_", "TW_", rownames(mat_wedge))
+      mats[[length(mats) + 1]] <- mat_wedge
+    }
+    if (!length(mats)) return(NULL)
+    if (length(mats) == 1) return(mats[[1]])
+    rbind(mats[[1]], mats[[2]])
+  }
+  build_stacked <- function(node, edge, triangle, wedge, merge_triplets) {
+    mats <- list()
+    types <- list()
+    if (!is.null(node)) {
+      mats[[length(mats) + 1]] <- node
+      types[[length(types) + 1]] <- rep("node", nrow(node))
+    }
+    if (!is.null(edge)) {
+      mats[[length(mats) + 1]] <- edge
+      types[[length(types) + 1]] <- rep("edge", nrow(edge))
+    }
+    if (merge_triplets) {
+      merged <- merge_triplet_mats(triangle, wedge)
+      if (!is.null(merged)) {
+        mats[[length(mats) + 1]] <- merged
+        types[[length(types) + 1]] <- rep("triangle", nrow(merged))
       }
+    } else {
+      if (!is.null(triangle)) {
+        mats[[length(mats) + 1]] <- triangle
+        types[[length(types) + 1]] <- rep("triangle", nrow(triangle))
+      }
+      if (!is.null(wedge)) {
+        mats[[length(mats) + 1]] <- wedge
+        types[[length(types) + 1]] <- rep("wedge", nrow(wedge))
+      }
+    }
+    if (!length(mats)) return(list(Y_all = NULL, motif_type = character()))
+    Y_all <- do.call(rbind, mats)
+    motif_type <- unlist(types, use.names = FALSE)
+    list(Y_all = Y_all, motif_type = motif_type)
+  }
+
+  counts_layers <- list(
+    node = align_counts(counts$node, "node"),
+    edge = align_counts(counts$edge, "edge"),
+    triangle = align_counts(counts$triangle, "triangle"),
+    wedge = align_counts(counts$wedge, "wedge")
+  )
+  counts_stacked <- build_stacked(
+    counts_layers$node,
+    counts_layers$edge,
+    counts_layers$triangle,
+    counts_layers$wedge,
+    merge_triplets
+  )
+  Y_all <- counts_stacked$Y_all
+  motif_type <- counts_stacked$motif_type
+  motif_info <- data.frame(
+    motif = if (is.null(Y_all)) character() else rownames(Y_all),
+    motif_type = motif_type,
+    stringsAsFactors = FALSE
+  )
+
+  offsets_container <- cellgraph$offsets
+  get_offsets_mode <- function(mode) {
+    if (is.null(offsets_container) || !length(offsets_container)) return(NULL)
+    if (all(c("node", "edge", "triangle") %in% names(offsets_container))) {
+      if (mode != "volume") return(NULL)
+      return(offsets_container)
+    }
+    offsets_container[[mode]]
+  }
+  align_offsets <- function(counts_mat, offset_mat, layer) {
+    if (is.null(counts_mat) || nrow(counts_mat) == 0) return(NULL)
+    if (is.null(offset_mat)) stop("Offsets missing for layer: ", layer)
+    if (is.null(colnames(offset_mat))) stop("Offsets for layer ", layer, " are missing column names.")
+    if (!identical(colnames(offset_mat), samples)) offset_mat <- offset_mat[, samples, drop = FALSE]
+    if (!identical(rownames(offset_mat), rownames(counts_mat))) {
+      if (setequal(rownames(offset_mat), rownames(counts_mat))) {
+        offset_mat <- offset_mat[rownames(counts_mat), , drop = FALSE]
+      } else {
+        stop("Offsets row names do not match counts for layer: ", layer)
+      }
+    }
+    offset_mat
+  }
+  build_offsets_all <- function(mode) {
+    offs <- get_offsets_mode(mode)
+    if (is.null(offs)) return(NULL)
+    off_layers <- list(
+      node = align_offsets(counts_layers$node, offs$node, "node"),
+      edge = align_offsets(counts_layers$edge, offs$edge, "edge"),
+      triangle = align_offsets(counts_layers$triangle, offs$triangle, "triangle"),
+      wedge = align_offsets(counts_layers$wedge, offs$wedge, "wedge")
+    )
+    stacked <- build_stacked(
+      off_layers$node,
+      off_layers$edge,
+      off_layers$triangle,
+      off_layers$wedge,
+      merge_triplets
+    )
+    if (is.null(stacked$Y_all)) return(NULL)
+    stacked$Y_all
+  }
+
+  if (is.null(Y_all) || !nrow(Y_all)) {
+    empty_strategy <- list(type = "edgeR", offset_mode = NA_character_,
+      full = list(design = design, design_formula = design_formula, dge = NULL, fit = NULL, tests = list()),
+      null = list(design = design_null, design_formula = "~ 1", dge = NULL, fit = NULL, tests = list())
+    )
+    cellgraph$edger <- list(
+      strategies = list(
+        volume = empty_strategy,
+        hierarchical = empty_strategy,
+        ancova = list(type = "ancova", offset_mode = "volume", design = design, design_formula = design_formula,
+          logFC = NULL, PValue = NULL, coef_names = colnames(design))
+      ),
+      motif_info = motif_info,
+      sample_df = sample_df,
+      merge_triplets = merge_triplets
+    )
+    return(cellgraph)
+  }
+
+  fit_model <- function(dge_base, design_mat, label) {
+    dge_fit <- tryCatch(edgeR::estimateGLMRobustDisp(dge_base, design = design_mat), error = function(err) NULL)
+    if (is.null(dge_fit)) {
+      if (verbose) message("edgeR dispersion estimation failed for ", label, " model; tests will be empty.")
+      return(list(dge = dge_base, fit = NULL, tests = list()))
+    }
+    fit <- tryCatch(edgeR::glmQLFit(dge_fit, design = design_mat), error = function(err) NULL)
+    if (is.null(fit)) {
+      if (verbose) message("edgeR GLM fit failed for ", label, " model; tests will be empty.")
+      return(list(dge = dge_fit, fit = NULL, tests = list()))
+    }
+    tests <- lapply(seq_len(ncol(design_mat)), function(i) {
+      tryCatch(edgeR::glmQLFTest(fit, coef = i), error = function(err) NULL)
+    })
+    names(tests) <- colnames(design_mat)
+    list(dge = dge_fit, fit = fit, tests = tests)
+  }
+
+  edger_strategies <- list()
+
+  tmm_baked <- isTRUE(cellgraph$parameters$node_tmm_offsets)
+  # Helper: Correct volume offsets for TMM on nodes (Differential Abundance)
+  # Legacy offsets (Chung-Lu) may not include TMM. For nodes, we usually want TMM.
+  # We compute TMM on the NODE layer only, then add log(TMM) to the node offsets.
+  correct_node_offsets <- function(y_all, offsets_all, types) {
+    if (tmm_baked) return(offsets_all)
+    node_idx <- which(types == "node")
+    if (!length(node_idx)) return(offsets_all)
+    
+    # Extract node counts and calculate TMM
+    # We must operate on just the node matrix to get composition factors correct
+    y_nodes <- as.matrix(y_all[node_idx, , drop = FALSE])
+    dge_nodes <- edgeR::calcNormFactors(edgeR::DGEList(counts = y_nodes), method = "TMM")
+    norm_factors <- dge_nodes$samples$norm.factors
+    
+    # Add log(norm.factors) to the existing log(TotalCells) offset for node rows only
+    # Offset <- log(TotalCells) + log(TMM)
+    if (!is.null(norm_factors)) {
+      if (!is.null(names(norm_factors))) norm_factors <- norm_factors[colnames(y_nodes)]
+      if (length(norm_factors) == ncol(y_nodes) &&
+        all(is.finite(norm_factors)) && all(norm_factors > 0)) {
+        log_tmm <- log(norm_factors)
+        # Add vector to every row in the submatrix
+        offsets_all[node_idx, ] <- sweep(offsets_all[node_idx, , drop = FALSE], 2, log_tmm, "+")
+      }
+    }
+    offsets_all
+  }
+
+  if ("volume" %in% strategies) {
+    vol_offsets <- build_offsets_all("volume")
+    if (is.null(vol_offsets)) stop("Volume offsets are missing; rerun count_motifs_graphs().")
+    
+    # Apply TMM correction to Nodes layer only
+    vol_offsets <- correct_node_offsets(Y_all, vol_offsets, motif_type)
+
+    if (verbose) message("Fitting edgeR (QL) for volume offsets...")
+    dge_base <- edgeR::DGEList(counts = Y_all)
+    # Note: calcNormFactors here is redundant because we supply a custom offset,
+    # but we leave it for consistency in the object. The effective normalization
+    # is now baked into vol_offsets for nodes.
+    dge_base <- edgeR::calcNormFactors(dge_base, method = "TMM")
+    dge_base$offset <- as.matrix(vol_offsets)
+    
+    full_res <- fit_model(dge_base, design, "volume/full")
+    null_res <- if (identical(design, design_null)) full_res else fit_model(dge_base, design_null, "volume/null")
+    edger_strategies$volume <- list(
+      type = "edgeR",
+      offset_mode = "volume",
+      design = design,
+      design_formula = design_formula,
+      full = full_res,
+      null = null_res
+    )
+  }
+
+  if ("hierarchical" %in% strategies) {
+    hier_offsets <- build_offsets_all("hier_null")
+    if (is.null(hier_offsets)) stop("Hierarchical offsets (hier_null) are missing; rerun count_motifs_graphs().")
+    
+    # Hierarchical offsets for Nodes are also just log(Cells). They should also get TMM.
+    hier_offsets <- correct_node_offsets(Y_all, hier_offsets, motif_type)
+
+    if (verbose) message("Fitting edgeR (QL) for hierarchical offsets...")
+    dge_base <- edgeR::DGEList(counts = Y_all)
+    dge_base <- edgeR::calcNormFactors(dge_base, method = "TMM")
+    dge_base$offset <- as.matrix(hier_offsets)
+    full_res <- fit_model(dge_base, design, "hierarchical/full")
+    null_res <- if (identical(design, design_null)) full_res else fit_model(dge_base, design_null, "hierarchical/null")
+    edger_strategies$hierarchical <- list(
+      type = "edgeR",
+      offset_mode = "hier_null",
+      design = design,
+      design_formula = design_formula,
+      full = full_res,
+      null = null_res
+    )
+  }
+
+  if ("ancova" %in% strategies) {
+    # Ensure vol_offsets is available and corrected
+    if (!exists("vol_offsets")) {
+      vol_offsets <- build_offsets_all("volume")
+      if (is.null(vol_offsets)) stop("Volume offsets are missing; rerun count_motifs_graphs().")
+      vol_offsets <- correct_node_offsets(Y_all, vol_offsets, motif_type)
+    }
+    
+    hier_offsets <- build_offsets_all("hier_null")
+    if (is.null(hier_offsets)) stop("Hierarchical offsets (hier_null) are missing; rerun count_motifs_graphs().")
+    if (verbose) message("Fitting ancova models (per motif)...")
+
+    edge_force_all <- as.matrix(hier_offsets)
+    if (length(motif_info$motif_type)) {
+      drop_idx <- motif_info$motif_type %in% c("node", "edge")
+      if (any(drop_idx)) edge_force_all[drop_idx, ] <- 0
+    }
+
+    dispersion_vec <- NULL
+    # Try to borrow dispersion from the Volume model (most stable)
+    if (!is.null(edger_strategies$volume) && !is.null(edger_strategies$volume$full$dge)) {
+      disp <- edger_strategies$volume$full$dge$tagwise.dispersion
+      if (is.null(disp)) disp <- edger_strategies$volume$full$dge$common.dispersion
+      if (!is.null(disp)) {
+        if (!is.null(names(disp))) disp <- disp[rownames(Y_all)]
+        if (length(disp) == 1L) disp <- rep(disp, nrow(Y_all))
+        if (length(disp) == nrow(Y_all)) dispersion_vec <- disp
+      }
+    }
+    # Fallback estimation if volume strategy wasn't run or failed
+    if (is.null(dispersion_vec)) {
+      dge_base <- edgeR::DGEList(counts = Y_all)
+      dge_base <- edgeR::calcNormFactors(dge_base, method = "TMM")
+      dge_base$offset <- as.matrix(vol_offsets)
+      dge_fit <- tryCatch(edgeR::estimateGLMRobustDisp(dge_base, design = design), error = function(err) NULL)
+      if (!is.null(dge_fit)) {
+        disp <- dge_fit$tagwise.dispersion
+        if (is.null(disp)) disp <- dge_fit$common.dispersion
+        if (!is.null(disp)) {
+          if (!is.null(names(disp))) disp <- disp[rownames(Y_all)]
+          if (length(disp) == 1L) disp <- rep(disp, nrow(Y_all))
+          if (length(disp) == nrow(Y_all)) dispersion_vec <- disp
+        }
+      }
+    }
+    if (is.null(dispersion_vec)) {
+      warning("Ancova dispersion could not be estimated; returning NA results.")
+    }
+
+    coef_names <- c(colnames(design), "edge_force")
+    logFC_mat <- matrix(NA_real_, nrow = nrow(Y_all), ncol = length(coef_names),
+      dimnames = list(rownames(Y_all), coef_names))
+    pval_mat <- matrix(NA_real_, nrow = nrow(Y_all), ncol = length(coef_names),
+      dimnames = list(rownames(Y_all), coef_names))
+
+    if (!is.null(dispersion_vec)) {
+      for (i in seq_len(nrow(Y_all))) {
+        y <- as.numeric(Y_all[i, ])
+        if (all(is.na(y))) next
+        off <- as.numeric(vol_offsets[i, ])
+        ef <- as.numeric(edge_force_all[i, ])
+        ef[!is.finite(ef)] <- 0
+        design_m <- cbind(design, edge_force = ef)
+        sd_ef <- stats::sd(ef, na.rm = TRUE)
+        if (!is.finite(sd_ef) || sd_ef == 0) {
+          design_m <- design
+        }
+        if (qr(design_m)$rank < ncol(design_m)) next
+
+        dge <- edgeR::DGEList(counts = matrix(y, nrow = 1, dimnames = list(rownames(Y_all)[i], samples)))
+        dge$offset <- matrix(off, nrow = 1, dimnames = list(rownames(Y_all)[i], samples))
+        fit <- tryCatch(edgeR::glmFit(dge, design = design_m, dispersion = dispersion_vec[i]), error = function(err) NULL)
+        if (is.null(fit)) next
+        coef_names_fit <- colnames(design_m)
+        for (j in seq_along(coef_names_fit)) {
+          tst <- tryCatch(edgeR::glmLRT(fit, coef = j), error = function(err) NULL)
+          if (is.null(tst)) next
+          logFC_mat[i, coef_names_fit[j]] <- tst$table$logFC
+          pval_mat[i, coef_names_fit[j]] <- tst$table$PValue
+        }
+      }
+    }
+
+    edger_strategies$ancova <- list(
+      type = "ancova",
+      offset_mode = "volume",
+      design = design,
+      design_formula = design_formula,
+      logFC = logFC_mat,
+      PValue = pval_mat,
+      coef_names = coef_names
+    )
+  }
+
+  cellgraph$edger <- list(
+    strategies = edger_strategies,
+    motif_info = motif_info,
+    sample_df = sample_df,
+    merge_triplets = merge_triplets
+  )
+  cellgraph
+}
+#' Extract top motifs from stored strategies
+#'
+#' Pull a ranked data frame of motifs using results stored by [motif_edger()].
+#' Set `strategy` to choose between volume, hierarchical, ancova, or hybrid models.
+#'
+#' @param cellgraph A `cellEdgeR_obj` with `edger` results.
+#' @param strategy Which strategy to use: `hybrid`, `ancova`, `volume`, or `hierarchical`
+#'   (defaults to `hybrid`; hybrid applies volume to node/edge motifs and ancova to triangle/wedge motifs).
+#' @param coef Coefficient name or index; defaults to the first non-intercept coefficient,
+#'   or the intercept when only an intercept is present.
+#' @param model Which stored model to use for edgeR strategies: `full` or `null`.
+#' @param n Number of motifs to return; defaults to all.
+#' @param fdr_method Multiple testing correction method for `p.adjust` (default `BH`).
+#' @param append_strategies Optional vector of strategies to append raw PValues/logFC for.
+#'   Use `TRUE` to append all other strategies.
+#' @return A data frame with columns: motif, motif_type, logFC, PValue, FDR, model_used.
+#'   For `hybrid`, FDR is computed separately for node/edge motifs and triangle/wedge motifs.
+#'   Additional `logFC_<strategy>` and `PValue_<strategy>` columns are added when requested.
+#' @export
+top_motifs <- function(
+  cellgraph,
+  strategy = c("hybrid", "ancova", "volume", "hierarchical"),
+  coef = NULL,
+  model = c("full", "null"),
+  n = Inf,
+  fdr_method = "BH",
+  append_strategies = NULL
+) {
+  validate_motif_obj(cellgraph, require_offsets = FALSE)
+  edger <- cellgraph$edger
+  if (is.null(edger) || !is.list(edger)) {
+    stop("cellgraph$edger is missing; run motif_edger() first.")
+  }
+  if (is.null(edger$strategies) || !is.list(edger$strategies)) {
+    stop("cellgraph$edger$strategies is missing; rerun motif_edger().")
+  }
+  strategy <- match.arg(strategy)
+  if (identical(strategy, "hybrid")) {
+    missing_strats <- setdiff(c("volume", "ancova"), names(edger$strategies))
+    if (length(missing_strats)) {
+      stop("Hybrid strategy requires: ", paste(missing_strats, collapse = ", "),
+        ". Rerun motif_edger(strategies = c(\"volume\", \"ancova\")).")
+    }
+  } else if (!strategy %in% names(edger$strategies)) {
+    stop("Strategy not found: ", strategy, ". Available: ", paste(names(edger$strategies), collapse = ", "))
+  }
+  model <- match.arg(model)
+
+  resolve_coef_name <- function(design_mat, coef, coef_names) {
+    if (is.null(coef_names)) coef_names <- colnames(design_mat)
+    if (is.null(coef_names)) coef_names <- paste0("coef", seq_len(ncol(design_mat)))
+    if (is.null(coef)) {
+      non_int <- which(coef_names != "(Intercept)")
+      if (length(non_int)) return(coef_names[non_int[1]])
+      return(coef_names[1])
+    }
+    if (is.character(coef)) {
+      if (!coef %in% coef_names) stop("coef name not found in model design.")
       return(coef)
     }
-    non_int <- which(colnames(design) != "(Intercept)")
-    if (!is.null(coef_variable)) {
-      target_cols <- grep(paste0("^", coef_variable), colnames(design))
-      if (length(target_cols) == 0) stop("coef_variable not found in design.")
-      if (!is.null(coef_level)) {
-        target_name <- paste0(coef_variable, coef_level)
-        idx <- match(target_name, colnames(design))
-        if (!is.na(idx)) return(idx)
-      }
-      return(target_cols[1])
+    if (!is.numeric(coef) || length(coef) != 1 || is.na(coef)) {
+      stop("coef must be a single name or numeric index.")
     }
-    if (length(non_int) == 0) stop("No non-intercept term found; set `coef`.")
-    non_int[1]
-  }
-  coef <- resolve_coef()
-
-  fdr_method <- match.arg(fdr_method)
-
-  Y1 <- motif_obj$counts$size1
-  Y2 <- motif_obj$counts$size2
-  Y3 <- motif_obj$counts$size3
-  Yw <- motif_obj$counts$wedges
-
-  offsets <- motif_obj$offsets
-  if (is.null(offsets)) {
-    pseudo_local <- if (!is.null(motif_obj$meta$offset_pseudo)) motif_obj$meta$offset_pseudo else pseudo
-    offsets <- compute_motif_offsets(motif_obj, pseudo_local)
-  }
-  log_cells <- offsets$size1
-  off2 <- offsets$size2
-  off3 <- offsets$size3
-  offw <- offsets$wedges
-
-  # edgeR fits (per layer)
-  fit_layer <- function(Y, off) {
-    if (nrow(Y) == 0) return(NULL)
-    dge <- edgeR::DGEList(counts = Y)
-    dge <- edgeR::calcNormFactors(dge, method = "TMM")
-    dge$offset <- as.matrix(off) # keep offsets on the DGEList to avoid double-passing to edgeR
-    design_rank <- qr(design)$rank
-    resid_df <- ncol(Y) - design_rank
-    if (resid_df <= 0) {
-      if (verbose) message("Insufficient residual df (", resid_df, "); returning NA results for layer.")
-      return(data.frame(
-        motif = rownames(Y),
-        logFC = rep(NA_real_, nrow(Y)),
-        PValue = rep(NA_real_, nrow(Y)),
-        FDR_BH = rep(NA_real_, nrow(Y)),
-        row.names = NULL
-      ))
-    }
-
-    dge <- edgeR::estimateDisp(dge, design = design)
-    fit <- tryCatch(
-      edgeR::glmQLFit(dge, design = design),
-      error = function(err) {
-        if (grepl("NA dispersions not allowed", err$message, fixed = TRUE)) {
-          if (verbose) message("edgeR GLM fit failed: ", err$message)
-          return(NULL)
-        }
-        stop(err)
-      }
-    )
-    if (is.null(fit)) {
-      return(data.frame(
-        motif = rownames(Y),
-        logFC = rep(NA_real_, nrow(Y)),
-        PValue = rep(NA_real_, nrow(Y)),
-        FDR_BH = rep(NA_real_, nrow(Y)),
-        row.names = NULL
-      ))
-    }
-    tst <- edgeR::glmQLFTest(fit, coef = coef)
-    tt <- edgeR::topTags(tst, n = Inf, sort.by = "none")$table
-    data.frame(
-      motif = rownames(Y),
-      logFC = tt$logFC,
-      PValue = tt$PValue,
-      FDR_BH = stats::p.adjust(tt$PValue, method = "BH"),
-      row.names = NULL
-    )
+    if (coef < 1 || coef > length(coef_names)) stop("coef index is out of range.")
+    coef_names[coef]
   }
 
-  merge_triplet_layer <- function(Y_tri, off_tri, Y_wedge, off_wedge) {
-    counts_list <- list()
-    offsets_list <- list()
-    if (!is.null(Y_tri) && nrow(Y_tri)) {
-      rownames(Y_tri) <- sub("^[^_]+_", "TW_", rownames(Y_tri))
-      counts_list[[length(counts_list) + 1]] <- Y_tri
-      offsets_list[[length(offsets_list) + 1]] <- off_tri
-    }
-    if (!is.null(Y_wedge) && nrow(Y_wedge)) {
-      rownames(Y_wedge) <- sub("^[^_]+_", "TW_", rownames(Y_wedge))
-      counts_list[[length(counts_list) + 1]] <- Y_wedge
-      offsets_list[[length(offsets_list) + 1]] <- off_wedge
-    }
-    if (!length(counts_list)) return(list(counts = Matrix::Matrix(0, nrow = 0, ncol = ncol(Y2),
-      sparse = TRUE, dimnames = list(character(), colnames(Y2))), offsets = Matrix::Matrix(0, nrow = 0, ncol = ncol(Y2))))
-    list(
-      counts = if (length(counts_list) == 1) counts_list[[1]] else rbind(counts_list[[1]], counts_list[[2]]),
-      offsets = if (length(offsets_list) == 1) offsets_list[[1]] else rbind(offsets_list[[1]], offsets_list[[2]])
-    )
+  motif_info <- edger$motif_info
+  if (is.null(motif_info)) {
+    motif_info <- data.frame(motif = character(), motif_type = character(), stringsAsFactors = FALSE)
   }
 
-  if (merge_triplets) {
-    merged <- merge_triplet_layer(Y3, off3, Yw, offw)
-    Y3 <- merged$counts
-    off3 <- merged$offsets
-  }
+  volume_types <- c("node", "edge")
+  ancova_types <- c("triangle", "wedge")
 
-  if (verbose) message("Fitting edgeR (QL)…")
-  res1 <- fit_layer(Y1, log_cells)
-  res2 <- fit_layer(Y2, off2)
-  res3 <- fit_layer(Y3, off3)
-  resw <- if (!merge_triplets && !is.null(Yw)) fit_layer(Yw, offw) else NULL
-
-  dag_result <- NULL
-  if (fdr_method == "dagger") {
-    if (verbose) message("Applying DAG FDR…")
-    size1 <- if (!is.null(res1)) res1$motif else character()
-    size2 <- if (!is.null(res2)) res2$motif else character()
-    size3 <- if (!is.null(res3)) res3$motif else character()
-    node_order <- c(size1, size2, size3)
-    node_id <- stats::setNames(seq_along(node_order), node_order)
-
-    edges <- list()
-    if (length(size1) && length(size2)) {
-      ab <- split_pair_labels(size2)
-      for (i in seq_along(size2)) {
-        a <- prefix_key(ab[i, 1], "N")
-        b <- prefix_key(ab[i, 2], "N")
-        if (a %in% size1) edges[[length(edges) + 1]] <- c(node_id[[a]], node_id[[size2[i]]])
-        if (b %in% size1) edges[[length(edges) + 1]] <- c(node_id[[b]], node_id[[size2[i]]])
-      }
+  get_strategy_table <- function(strategy_name) {
+    strat <- edger$strategies[[strategy_name]]
+    if (is.null(strat) || !is.list(strat)) {
+      stop("Strategy not found: ", strategy_name)
     }
-    if (length(size2) && length(size3)) {
-      abc <- split_triplet_labels(size3)
-      for (i in seq_along(size3)) {
-        A <- abc[i, 1]
-        B <- abc[i, 2]
-        C <- abc[i, 3]
-        for (pp in c(pair_key_vec(A, B, "E"), pair_key_vec(A, C, "E"), pair_key_vec(B, C, "E"))) {
-          if (pp %in% size2) edges[[length(edges) + 1]] <- c(node_id[[pp]], node_id[[size3[i]]])
-        }
+    if (identical(strat$type, "edgeR")) {
+      model_res <- strat[[model]]
+      if (is.null(model_res) || !is.list(model_res)) {
+        stop("Strategy ", strategy_name, " has no ", model, " model results.")
       }
-    }
-    E_dag <- if (length(edges)) do.call(rbind, edges) else matrix(numeric(0), ncol = 2)
-
-    q_dag <- rep(NA_real_, length(node_order))
-    q1 <- if (length(size1)) stats::p.adjust(res1$PValue, "BH") else numeric(0)
-    keep1 <- if (length(q1)) (q1 <= alpha) else logical(0)
-    q2 <- rep(NA_real_, length(size2))
-    if (length(size2)) {
-      ab <- split_pair_labels(size2)
-      ok <- logical(length(size2))
-      for (i in seq_along(size2)) {
-        ok[i] <- (prefix_key(ab[i, 1], "N") %in% size1[keep1]) && (prefix_key(ab[i, 2], "N") %in% size1[keep1])
-      }
-      pv2 <- res2$PValue
-      pv2[!ok] <- NA
-      if (any(ok)) q2[ok] <- stats::p.adjust(pv2[ok], "BH")
-    }
-    q3 <- rep(NA_real_, length(size3))
-    if (length(size3)) {
-      abc <- split_triplet_labels(size3)
-      ok3 <- logical(length(size3))
-      keep2_set <- if (length(size2)) size2[which(q2 <= alpha)] else character(0)
-      for (i in seq_along(size3)) {
-        prs <- c(
-          pair_key_vec(abc[i, 1], abc[i, 2], "E"),
-          pair_key_vec(abc[i, 1], abc[i, 3], "E"),
-          pair_key_vec(abc[i, 2], abc[i, 3], "E")
+      tests <- model_res$tests
+      design_mat <- strat$design
+      if (is.null(design_mat) || !ncol(design_mat)) stop("Design matrix missing for strategy: ", strategy_name)
+      coef_name <- resolve_coef_name(design_mat, coef, colnames(design_mat))
+      if (is.null(tests) || !length(tests) || is.null(tests[[coef_name]])) {
+        warning("No edgeR tests stored for ", strategy_name, " coef: ", coef_name, ". Returning NA results.")
+        out <- data.frame(
+          motif = motif_info$motif,
+          logFC = NA_real_,
+          PValue = NA_real_,
+          stringsAsFactors = FALSE
         )
-        ok3[i] <- all(prs %in% keep2_set)
+      } else {
+        tt <- edgeR::topTags(tests[[coef_name]], n = Inf, sort.by = "none")$table
+        out <- data.frame(
+          motif = rownames(tt),
+          logFC = tt$logFC,
+          PValue = tt$PValue,
+          stringsAsFactors = FALSE
+        )
       }
-      pv3 <- res3$PValue
-      pv3[!ok3] <- NA
-      if (any(ok3)) q3[ok3] <- stats::p.adjust(pv3[ok3], "BH")
+    } else if (identical(strat$type, "ancova")) {
+      coef_names <- strat$coef_names
+      design_mat <- strat$design
+      coef_name <- resolve_coef_name(design_mat, coef, coef_names)
+      if (is.null(strat$logFC) || is.null(strat$PValue)) {
+        warning("Ancova results missing for strategy: ", strategy_name, ". Returning NA results.")
+        out <- data.frame(
+          motif = motif_info$motif,
+          logFC = NA_real_,
+          PValue = NA_real_,
+          stringsAsFactors = FALSE
+        )
+      } else if (!coef_name %in% colnames(strat$logFC)) {
+        stop("coef name not found in ancova results.")
+      } else {
+        out <- data.frame(
+          motif = rownames(strat$logFC),
+          logFC = strat$logFC[, coef_name],
+          PValue = strat$PValue[, coef_name],
+          stringsAsFactors = FALSE
+        )
+      }
+    } else {
+      stop("Unknown strategy type for: ", strategy_name)
     }
-    if (length(size1)) q_dag[node_id[size1]] <- q1
-    if (length(size2)) q_dag[node_id[size2]] <- q2
-    if (length(size3)) q_dag[node_id[size3]] <- q3
-
-    add_q <- function(res, layer_keys) {
-      if (is.null(res) || !length(layer_keys)) return(res)
-      res$FDR_DAG <- q_dag[node_id[layer_keys]]
-      res
-    }
-    res1 <- add_q(res1, size1)
-    res2 <- add_q(res2, size2)
-    res3 <- add_q(res3, size3)
-
-    dag_result <- list(nodes = node_order, edges = E_dag)
-  } else if (verbose) {
-    message("Using layerwise BH FDR; DAG correction skipped.")
+    out$motif_type <- motif_info$motif_type[match(out$motif, motif_info$motif)]
+    out
   }
 
-  fdr_meta <- list(
-    method = fdr_method,
-    alpha = if (fdr_method == "dagger") alpha else NA_real_
-  )
+  get_hybrid_table <- function() {
+    vol_tbl <- get_strategy_table("volume")
+    anc_tbl <- get_strategy_table("ancova")
+    if (nrow(motif_info)) {
+      base_tbl <- motif_info
+    } else {
+      motifs <- unique(c(vol_tbl$motif, anc_tbl$motif))
+      base_tbl <- data.frame(motif = motifs, motif_type = NA_character_, stringsAsFactors = FALSE)
+    }
+    base_tbl$logFC <- NA_real_
+    base_tbl$PValue <- NA_real_
+    if (nrow(base_tbl)) {
+      vol_idx <- base_tbl$motif_type %in% volume_types
+      anc_idx <- base_tbl$motif_type %in% ancova_types
+      vol_match <- match(base_tbl$motif, vol_tbl$motif)
+      anc_match <- match(base_tbl$motif, anc_tbl$motif)
+      if (any(vol_idx)) {
+        base_tbl$logFC[vol_idx] <- vol_tbl$logFC[vol_match[vol_idx]]
+        base_tbl$PValue[vol_idx] <- vol_tbl$PValue[vol_match[vol_idx]]
+      }
+      if (any(anc_idx)) {
+        base_tbl$logFC[anc_idx] <- anc_tbl$logFC[anc_match[anc_idx]]
+        base_tbl$PValue[anc_idx] <- anc_tbl$PValue[anc_match[anc_idx]]
+      }
+    }
+    base_tbl
+  }
 
-list(
-    design = design,
-    results = {
-      ord <- function(df) if (is.null(df)) NULL else df[order(df$PValue), ]
-      out <- list(size1 = ord(res1), size2 = ord(res2), size3 = ord(res3))
-      if (!is.null(resw)) out$wedges <- ord(resw)
-      out
-    },
-    dag = dag_result,
-    fdr = fdr_meta
-  )
-}
+  if (identical(strategy, "hybrid")) {
+    main_tbl <- get_hybrid_table()
+    main_tbl$FDR <- NA_real_
+    vol_idx <- main_tbl$motif_type %in% volume_types
+    anc_idx <- main_tbl$motif_type %in% ancova_types
+    if (any(vol_idx)) {
+      main_tbl$FDR[vol_idx] <- stats::p.adjust(main_tbl$PValue[vol_idx], method = fdr_method)
+    }
+    if (any(anc_idx)) {
+      main_tbl$FDR[anc_idx] <- stats::p.adjust(main_tbl$PValue[anc_idx], method = fdr_method)
+    }
+    main_tbl$model_used <- NA_character_
+    if (any(vol_idx)) main_tbl$model_used[vol_idx] <- "volume"
+    if (any(anc_idx)) main_tbl$model_used[anc_idx] <- "ancova"
+  } else {
+    main_tbl <- get_strategy_table(strategy)
+    main_tbl$FDR <- stats::p.adjust(main_tbl$PValue, method = fdr_method)
+    main_tbl$model_used <- strategy
+  }
+  main_tbl <- main_tbl[, c("motif", "motif_type", "logFC", "PValue", "FDR", "model_used")]
+  main_tbl <- main_tbl[order(main_tbl$PValue, na.last = TRUE), , drop = FALSE]
 
-#' @rdname cellmotif_edger
-#' @keywords internal
-cellmotif_edger <- function(...) {
-  .Deprecated("motif_edger")
-  motif_edger(...)
+  if (!is.null(append_strategies)) {
+    if (isTRUE(append_strategies)) {
+      append_strategies <- setdiff(names(edger$strategies), strategy)
+    }
+    append_strategies <- unique(as.character(append_strategies))
+    append_strategies <- setdiff(append_strategies, strategy)
+    for (s in append_strategies) {
+      if (!s %in% names(edger$strategies)) {
+        warning("Skipping unknown strategy: ", s)
+        next
+      }
+      tbl <- get_strategy_table(s)
+      tbl <- tbl[, c("motif", "logFC", "PValue")]
+      names(tbl)[2:3] <- c(paste0("logFC_", s), paste0("PValue_", s))
+      match_idx <- match(main_tbl$motif, tbl$motif)
+      main_tbl[[paste0("logFC_", s)]] <- tbl[[paste0("logFC_", s)]][match_idx]
+      main_tbl[[paste0("PValue_", s)]] <- tbl[[paste0("PValue_", s)]][match_idx]
+    }
+  }
+
+  if (!is.infinite(n)) {
+    n <- as.integer(n[1])
+    if (is.na(n) || n < 0) stop("n must be non-negative.")
+    main_tbl <- utils::head(main_tbl, n)
+  }
+  main_tbl
 }
