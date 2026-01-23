@@ -4,7 +4,8 @@
 \alias{make_demo_samples}
 \title{Create a synthetic dataset for quick testing}
 \usage{
-make_demo_samples(n_cells = 100, n_labels = 3, n_samples = 24, seed = NULL)
+make_demo_samples(n_cells = 300, n_labels = 3, n_samples = 24,
+  seed = NULL, boost_motif = TRUE)
 }
 \arguments{
 \item{n_cells}{Number of cells per sample.}
@@ -14,13 +15,19 @@ make_demo_samples(n_cells = 100, n_labels = 3, n_samples = 24, seed = NULL)
 \item{n_samples}{Number of samples to generate.}
 
 \item{seed}{Optional integer seed for reproducibility; if \code{NULL}, the current RNG state is used.}
+
+\item{boost_motif}{Logical; if \code{TRUE}, add clustered triplets to enrich a triangle motif
+in the second half of samples.}
 }
 \value{
 A named list of data frames (one per sample) with columns \code{x}, \code{y}, and \code{label}.
 }
 \description{
 Generates a named list of sample data frames with random coordinates and labels,
-suitable for exercising the CellEdgeR workflow without real data.
+suitable for exercising the CellEdgeR workflow without real data. When
+\code{boost_motif} is \code{TRUE}, the second half of samples receives tightly
+clustered label triplets to increase a triangle motif (default labels: a/b/c or
+repeats when fewer labels exist). The number of triplets scales with \code{n\_cells}.
 }
 \examples{
 demo_samples <- make_demo_samples(seed = 42)
