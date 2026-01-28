@@ -33,5 +33,5 @@ plot_motif_artifact_check(
 A \code{ggplot} object.
 }
 \description{
-Plot per-sample log residuals from hierarchical offsets against total edge density.
+Plot per-sample log residuals from edge-derived offsets against total edge density.
 }

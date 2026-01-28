@@ -81,7 +81,7 @@ test_that("edgeR pipeline runs with BH correction", {
 
   expect_true(inherits(res, "cellEdgeR_obj"))
   expect_true(is.list(res$edger$strategies))
-  expect_true(all(c("volume", "hierarchical", "ancova") %in% names(res$edger$strategies)))
+  expect_true(all(c("volume", "ancova") %in% names(res$edger$strategies)))
   tbl <- top_motifs(res, strategy = "volume", coef = "conditiontreated")
   expect_true(is.data.frame(tbl))
   expect_true(all(c("motif", "motif_type", "logFC", "PValue", "FDR") %in% names(tbl)))
@@ -117,8 +117,7 @@ test_that("get_motif_values returns motif and submotif values", {
   vals <- get_motif_values(
     motif_obj,
     motif_key = tri_key,
-    value = "raw",
-    offset_mode = "volume"
+    value = "raw"
   )
   expect_true(is.data.frame(vals))
   expect_equal(rownames(vals), motif_obj$sample_name)
@@ -127,8 +126,7 @@ test_that("get_motif_values returns motif and submotif values", {
   norm_vals <- get_motif_values(
     motif_obj,
     motif_key = tri_key,
-    value = "norm",
-    offset_mode = "volume"
+    value = "norm"
   )
   expect_true(tri_key %in% colnames(norm_vals))
 
@@ -136,8 +134,7 @@ test_that("get_motif_values returns motif and submotif values", {
     motif_obj,
     motif_key = tri_key,
     include_submotifs = TRUE,
-    value = "raw",
-    offset_mode = "volume"
+    value = "raw"
   )
   expect_equal(colnames(sub_vals)[1], tri_key)
   expect_true(any(grepl("^E_", colnames(sub_vals))))

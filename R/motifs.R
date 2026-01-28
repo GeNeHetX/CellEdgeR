@@ -326,7 +326,7 @@ count_motifs_graphs <- function(
     verbose = verbose,
     n_cores = n_cores
   )
-  # Offsets: volume and hierarchical (intercept-based)
+  # Offsets: volume and edge-derived null (intercept-based)
   offsets_volume <- compute_offsets_volume(counts_obj, offset_pseudo)
   hier_null <- compute_offsets_hierarchical(counts_obj, offset_pseudo, mode = "null")
   offset_results <- list(
@@ -1185,8 +1185,8 @@ compute_offsets_hierarchical <- function(motif_obj, pseudo, mode = c("null", "fu
   des <- if (mode == "null") design_null else design
   fit <- fit_edge_posterior(motif_obj$raw_count$edge, volume_offsets$edge, des)
   if (is.null(fit)) {
-    if (mode == "null") warning("edgeR fit failed for hierarchical offsets (null); falling back to counts.")
-    else warning("edgeR fit failed for hierarchical offsets (full); falling back to counts.")
+    if (mode == "null") warning("edgeR fit failed for edge-derived offsets (null); falling back to counts.")
+    else warning("edgeR fit failed for edge-derived offsets (full); falling back to counts.")
     edge_mu <- as.matrix(motif_obj$raw_count$edge)
   } else {
     edge_mu <- fit$fitted.values
@@ -1288,27 +1288,25 @@ get_norm_counts <- function(cellgraph, offset_mode = NULL, log2 = TRUE, pseudoco
 
 #' Retrieve motif values (raw, normalized)
 #'
-#' Pull raw counts or normalized counts for a motif (or its hierarchical submotifs)
+#' Pull raw counts or normalized counts for a motif (or its lower-order submotifs)
 #' into a samples-by-motifs data frame.
 #'
 #' @param cellgraph A `cellEdgeR_obj` returned by [count_motifs_graphs()].
 #' @param motif_key Character vector of motif keys (e.g., `E_A_B`, `T_A_B_C`). If `NULL`, return all motifs.
-#' @param include_submotifs Logical; if `TRUE`, include submotifs referenced by hierarchical offsets.
+#' @param include_submotifs Logical; if `TRUE`, include lower-order submotifs implied by the motif key
+#'   (edges for triangles/wedges, nodes for edges).
 #' @param value Which value to return: `raw` or `norm`.
-#' @param offset_mode Offset set name to use for normalized values; only `volume` is supported to
-#'   match the hybrid modeling offsets.
 #' @return A data frame with sample names as rownames and one column per motif.
 #'   When `include_submotifs = TRUE`, requested motifs appear first, followed by unique submotifs.
 #' @details
-#' Normalized values are computed directly from the selected offset set so they match the offsets used by
+#' Normalized values are computed directly from the volume offsets so they match the offsets used by
 #' [motif_edger()] (including node TMM adjustments when present).
 #' @export
 get_motif_values <- function(
   cellgraph,
   motif_key = NULL,
   include_submotifs = FALSE,
-  value = c("raw", "norm"),
-  offset_mode = NULL
+  value = c("raw", "norm")
 ) {
   validate_motif_obj(cellgraph, require_offsets = FALSE)
   samples <- cellgraph$sample_name
@@ -1348,16 +1346,11 @@ get_motif_values <- function(
   }
 
   needs_offsets <- value == "norm"
-  offset_mode_use <- NULL
   if (needs_offsets) {
     modes <- available_offset_modes(cellgraph)
     if (!length(modes)) stop("cellgraph is missing offsets; run count_motifs_graphs() first.")
-    offset_mode_use <- if (is.null(offset_mode)) "volume" else offset_mode
-    if (!identical(offset_mode_use, "volume")) {
-      stop("get_motif_values only supports offset_mode = \"volume\" to match hybrid normalization.")
-    }
-    if (!offset_mode_use %in% modes) {
-      stop("offset_mode not found; available: ", paste(modes, collapse = ", "))
+    if (!"volume" %in% modes) {
+      stop("cellgraph is missing volume offsets; run count_motifs_graphs() first.")
     }
   }
 
@@ -1403,17 +1396,12 @@ get_motif_values <- function(
       stop("cellgraph is missing ", label, "; run count_motifs_graphs() first.")
     }
     if (all(c("node", "edge", "triangle") %in% names(container))) {
-      if (!is.null(offset_mode_use) && offset_mode_use != "volume") {
-        stop(label, " does not contain offset_mode ", offset_mode_use, ".")
-      }
-      return(list(mats = container, mode = if (is.null(offset_mode_use)) "volume" else offset_mode_use))
+      return(list(mats = container, mode = "volume"))
     }
-    modes <- names(container)
-    if (is.null(offset_mode_use)) offset_mode_use <- modes[1]
-    if (!offset_mode_use %in% modes) {
-      stop("offset_mode not found in ", label, "; available: ", paste(modes, collapse = ", "))
+    if (!"volume" %in% names(container)) {
+      stop(label, " does not contain volume offsets.")
     }
-    list(mats = container[[offset_mode_use]], mode = offset_mode_use)
+    list(mats = container[["volume"]], mode = "volume")
   }
 
   tmm_baked <- isTRUE(cellgraph$parameters$node_tmm_offsets)
@@ -1443,7 +1431,7 @@ get_motif_values <- function(
   get_offsets_for_mode <- function() {
     sel <- select_mode_container(cellgraph$offsets, "offsets")
     offsets_layers <- sel$mats
-    if (tmm_baked || !offset_mode_use %in% c("volume", "hier_null")) return(offsets_layers)
+    if (tmm_baked) return(offsets_layers)
     if (is.null(offsets_layers$node) || is.null(raw_container$node) || nrow(raw_container$node) == 0) {
       return(offsets_layers)
     }
@@ -1504,12 +1492,12 @@ get_motif_values <- function(
 #' @param design_formula Formula string passed to `model.matrix`, e.g. `~ condition + batch`.
 #' @param verbose Logical; print progress.
 #' @param merge_triplets Logical; if `TRUE`, merges triangle and wedge motifs under the `TW_` prefix before fitting.
-#' @param strategies Character vector of strategies to run; defaults to `volume`, `hierarchical`, and `ancova`.
+#' @param strategies Character vector of strategies to run; defaults to `volume` and `ancova`.
 #'   Strategies are stored under `cellgraph$edger$strategies`.
 #'
 #' @return The input `cellgraph` augmented with `edger`, containing:
 #' \describe{
-#' \item{strategies}{Named list of strategy results (`volume`, `hierarchical`, `ancova`).}
+#' \item{strategies}{Named list of strategy results (`volume`, `ancova`).}
 #' \item{motif_info}{Data frame with `motif` and `motif_type` for joins.}
 #' \item{sample_df}{Sample metadata used to build the design.}
 #' \item{merge_triplets}{Whether triangles+wedge were merged.}
@@ -1521,7 +1509,7 @@ motif_edger <- function(
   design_formula,
   verbose = TRUE,
   merge_triplets = FALSE,
-  strategies = c("volume", "hierarchical", "ancova")
+  strategies = c("volume", "ancova")
 ) {
   #"edgeR", "Matrix"
   validate_motif_obj(cellgraph, require_offsets = TRUE)
@@ -1556,8 +1544,8 @@ motif_edger <- function(
 
   counts <- cellgraph$raw_count
   strategies <- unique(as.character(strategies))
-  strategies <- intersect(strategies, c("volume", "hierarchical", "ancova"))
-  if (!length(strategies)) stop("strategies must include at least one of: volume, hierarchical, ancova.")
+  strategies <- intersect(strategies, c("volume", "ancova"))
+  if (!length(strategies)) stop("strategies must include at least one of: volume, ancova.")
 
   align_counts <- function(mat, layer) {
     if (is.null(mat) || nrow(mat) == 0) return(NULL)
@@ -1684,7 +1672,6 @@ motif_edger <- function(
     cellgraph$edger <- list(
       strategies = list(
         volume = empty_strategy,
-        hierarchical = empty_strategy,
         ancova = list(type = "ancova", offset_mode = "volume", design = design, design_formula = design_formula,
           logFC = NULL, PValue = NULL, coef_names = colnames(design))
       ),
@@ -1771,29 +1758,6 @@ motif_edger <- function(
     )
   }
 
-  if ("hierarchical" %in% strategies) {
-    hier_offsets <- build_offsets_all("hier_null")
-    if (is.null(hier_offsets)) stop("Hierarchical offsets (hier_null) are missing; rerun count_motifs_graphs().")
-    
-    # Hierarchical offsets for Nodes are also just log(Cells). They should also get TMM.
-    hier_offsets <- correct_node_offsets(Y_all, hier_offsets, motif_type)
-
-    if (verbose) message("Fitting edgeR (QL) for hierarchical offsets...")
-    dge_base <- edgeR::DGEList(counts = Y_all)
-    dge_base <- edgeR::calcNormFactors(dge_base, method = "TMM")
-    dge_base$offset <- as.matrix(hier_offsets)
-    full_res <- fit_model(dge_base, design, "hierarchical/full")
-    null_res <- if (identical(design, design_null)) full_res else fit_model(dge_base, design_null, "hierarchical/null")
-    edger_strategies$hierarchical <- list(
-      type = "edgeR",
-      offset_mode = "hier_null",
-      design = design,
-      design_formula = design_formula,
-      full = full_res,
-      null = null_res
-    )
-  }
-
   if ("ancova" %in% strategies) {
     # Ensure vol_offsets is available and corrected
     if (!exists("vol_offsets")) {
@@ -1803,7 +1767,7 @@ motif_edger <- function(
     }
     
     hier_offsets <- build_offsets_all("hier_null")
-    if (is.null(hier_offsets)) stop("Hierarchical offsets (hier_null) are missing; rerun count_motifs_graphs().")
+    if (is.null(hier_offsets)) stop("Edge-derived offsets (hier_null) are missing; rerun count_motifs_graphs().")
     if (verbose) message("Fitting ancova models (per motif)...")
 
     edge_force_all <- as.matrix(hier_offsets)
@@ -1899,10 +1863,10 @@ motif_edger <- function(
 #' Extract top motifs from stored strategies
 #'
 #' Pull a ranked data frame of motifs using results stored by [motif_edger()].
-#' Set `strategy` to choose between volume, hierarchical, ancova, or hybrid models.
+#' Set `strategy` to choose between volume, ancova, or hybrid models.
 #'
 #' @param cellgraph A `cellEdgeR_obj` with `edger` results.
-#' @param strategy Which strategy to use: `hybrid`, `ancova`, `volume`, or `hierarchical`
+#' @param strategy Which strategy to use: `hybrid`, `ancova`, or `volume`
 #'   (defaults to `hybrid`; hybrid applies volume to node/edge motifs and ancova to triangle/wedge motifs).
 #' @param coef Coefficient name or index; defaults to the first non-intercept coefficient,
 #'   or the intercept when only an intercept is present.
@@ -1917,7 +1881,7 @@ motif_edger <- function(
 #' @export
 top_motifs <- function(
   cellgraph,
-  strategy = c("hybrid", "ancova", "volume", "hierarchical"),
+  strategy = c("hybrid", "ancova", "volume"),
   coef = NULL,
   model = c("full", "null"),
   n = Inf,

@@ -6,7 +6,7 @@ Fits multiple edgeR-based strategies across stacked motifs and stores results fo
 }
 \usage{
 motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
-  merge_triplets = FALSE, strategies = c("volume", "hierarchical", "ancova"))
+  merge_triplets = FALSE, strategies = c("volume", "ancova"))
 }
 \arguments{
   \item{cellgraph}{Output of \code{count_motifs_graphs()}, containing motif counts and offsets.}
@@ -14,21 +14,21 @@ motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
   \item{design_formula}{Formula string compatible with \code{stats::model.matrix()} (e.g. \code{~ condition + batch}).}
   \item{verbose}{Logical; print progress for edgeR.}
   \item{merge_triplets}{If \code{TRUE}, triangles and wedges are merged under a shared TW prefix before fitting.}
-  \item{strategies}{Character vector of strategies to run; defaults to \code{volume}, \code{hierarchical}, and \code{ancova}.}
+  \item{strategies}{Character vector of strategies to run; defaults to \code{volume} and \code{ancova}.}
 }
 \details{
-Three strategies are supported by default:
+Two strategies are supported by default:
 \itemize{
   \item \code{volume}: volume offsets (Chung-Lu baseline)
-  \item \code{hierarchical}: sub-motif offsets using fitted edges (hier\_null)
   \item \code{ancova}: volume offsets plus edge-force covariates per triangle/wedge
 }
-Use \code{\link{top_motifs}} to extract ranked tables with logFC and FDR.
+Use \code{\link{top_motifs}} to extract ranked tables with logFC and FDR. The hybrid
+summary combines volume (nodes/edges) and ancova (triangles/wedges).
 }
 \value{
 The input cellgraph augmented with \code{edger}, containing:
 \describe{
-  \item{\code{strategies}}{Named list of strategy results (\code{volume}, \code{hierarchical}, \code{ancova}).}
+  \item{\code{strategies}}{Named list of strategy results (\code{volume}, \code{ancova}).}
   \item{\code{motif_info}}{Data frame of motif keys and motif types for joins.}
   \item{\code{sample_df}}{Sample metadata used to build the model matrix.}
   \item{\code{merge_triplets}}{Whether triangles+wedge were merged.}

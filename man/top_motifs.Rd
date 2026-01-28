@@ -5,13 +5,13 @@
 Returns a ranked data frame of motifs using strategy results stored by \code{\link{motif_edger}}.
 }
 \usage{
-top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume",
-  "hierarchical"), coef = NULL, model = c("full", "null"), n = Inf,
-  fdr_method = "BH", append_strategies = NULL)
+top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume"),
+  coef = NULL, model = c("full", "null"), n = Inf, fdr_method = "BH",
+  append_strategies = NULL)
 }
 \arguments{
   \item{cellgraph}{A \code{cellEdgeR_obj} with \code{edger} results.}
-  \item{strategy}{Which strategy to use: \code{hybrid}, \code{ancova}, \code{volume}, or \code{hierarchical} (defaults to \code{hybrid}; hybrid applies volume to node/edge motifs and ancova to triangle/wedge motifs).}
+  \item{strategy}{Which strategy to use: \code{hybrid}, \code{ancova}, or \code{volume} (defaults to \code{hybrid}; hybrid applies volume to node/edge motifs and ancova to triangle/wedge motifs).}
   \item{coef}{Coefficient name or index; defaults to the first non-intercept coefficient, or the intercept when only an intercept is present.}
   \item{model}{Which stored model to use for edgeR strategies: \code{full} or \code{null}.}
   \item{n}{Number of motifs to return; defaults to all.}

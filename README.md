@@ -66,7 +66,7 @@ library(CellEdgeR)
    head(diff_tbl)
    ```
 
-   `motif_edger()` runs multiple strategies by default (`volume`, `hierarchical`, `ancova`) and stores results in
+   `motif_edger()` runs volume and ancova strategies by default and stores results in
    `cellgraph$edger$strategies`. `top_motifs()` defaults to the `hybrid` strategy (volume for node/edge motifs and ancova
    for triangle/wedge motifs), and reports `model_used` for each motif.
 
@@ -131,9 +131,9 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - `build_cell_graphs()`: Build per-sample Delaunay graphs from coordinates and labels.
 - `count_motifs_graphs()`: Count node/edge/triangle (and optional wedge) motifs and compute offsets/normalization.
 - `merge_motif_objs()`: Merge two motif objects and recompute offsets/normalized counts.
-- `motif_edger()`: Fit differential motif models (volume, hierarchical, ancova) and store results.
+- `motif_edger()`: Fit differential motif models (volume, ancova) and store results.
 - `top_motifs()`: Return a ranked data frame of motifs for a chosen strategy/coef.
-- `get_motif_values()`: Return raw/normalized motif values (optionally including hierarchical submotifs; normalized uses `volume` offsets).
+- `get_motif_values()`: Return raw/normalized motif values (optionally including lower-order submotifs; normalized uses `volume` offsets).
 - `plot_sample_graph()`: Plot one sample's graph and highlight motifs.
 - `cellEdgeR_obj`: Main object storing `sample_name`, counts, exposures, offsets, and edgeR results.
 - `cellEdgeR_graphs`: Graph-only object with `per_sample_graph` ready for motif counting.

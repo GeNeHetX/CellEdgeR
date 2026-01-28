@@ -191,7 +191,7 @@ plot_motif_slope_test <- function(cellgraph,
 
 #' Artifact check: residuals versus edge density
 #'
-#' Plot per-sample log residuals from hierarchical offsets against total edge density.
+#' Plot per-sample log residuals from edge-derived offsets against total edge density.
 #'
 #' @param cellgraph Output of [count_motifs_graphs()] (or [motif_edger()]) with stored relative counts.
 #' @param offset_mode Offset set to use for residuals; defaults to \code{"hier_null"}.
