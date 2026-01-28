@@ -1,0 +1,206 @@
+---
+title: "CellEdgeR technical note"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CellEdgeR technical note}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+# Brief intro
+
+CellEdgeR builds Delaunay graphs from spatial cell coordinates, counts cell-type
+motifs (nodes, edges, triangles, and optional wedges), and tests for differential
+abundance using edgeR with graph-aware offsets.
+
+# Quick start
+
+Just want the few lines of code to run the analysis?
+
+```{r quick-start}
+library(CellEdgeR)
+
+samples_list <- make_demo_samples(n_cells = 2000, seed = 1)
+metadata_df <- data.frame(
+  condition = rep(c("ctrl", "treated"), each = length(samples_list) / 2),
+  row.names = names(samples_list)
+)
+
+cellgraph <- build_cell_graphs(samples_list, n_cores = 2)
+cellgraph <- count_motifs_graphs(cellgraph, max_edge_len = 50, n_cores = 2)
+cellgraph <- motif_edger(
+  cellgraph,
+  sample_df = metadata_df,
+  design_formula = "~ condition",
+  strategies = c("volume", "ancova")
+)
+
+top_motifs(cellgraph, strategy = "hybrid", coef = "conditiontreated")
+```
+
+# Methodology (volume and hybrid)
+
+This section is a technical note aimed at readers who want to understand the
+statistical model and its assumptions.
+
+## Delaunay graphs and motif layers
+
+For each sample, CellEdgeR builds a Delaunay triangulation on the 2D coordinates
+and treats unique edges as candidate adjacency. Optional pruning by
+`max_edge_len` removes long edges before counting motifs. Motifs are counted on
+the pruned graph and stored by layer:
+
+- Nodes: `N_<label>`
+- Edges: `E_<label1>_<label2>` (unordered)
+- Triangles: `T_<label1>_<label2>_<label3>` (unordered)
+- Wedges: `W_<label1>_<label2>_<label3>` (unordered, optional)
+
+Counts are per sample, yielding a motif-by-sample matrix for each layer.
+
+## Volume exposure and offsets
+
+The volume approach uses label-specific "volumes" to represent how much of the
+graph is available for each label in each sample. Volumes are computed from node
+degrees in the Delaunay graph: for each label, sum the degrees of nodes with that
+label. Let `2m` be twice the number of edges in the sample.
+
+Offsets are the log expected counts under a Chung-Lu style random graph that
+preserves these volumes:
+
+- Nodes: `log(total cells)` with optional TMM correction on the node layer.
+- Edges: `log(vol_a) + log(vol_b) - log(2m)`
+- Triangles: `log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)`
+- Wedges: same volume scaling as triangles (optional).
+
+A small `offset_pseudo` is used to avoid log(0).
+
+## Volume model
+
+For each motif, counts are modeled with a negative binomial GLM (edgeR QL) with
+the volume offset. The design matrix comes from `design_formula` and can include
+multiple covariates. The resulting logFC is interpreted as change in motif rate
+relative to the volume baseline.
+
+Use `top_motifs(..., strategy = "volume")` to extract results from this model.
+
+## Hybrid model
+
+The hybrid strategy applies:
+
+- The volume model for node and edge motifs.
+- An ANCOVA-style per-motif model for triangle and wedge motifs, using volume
+  offsets plus a covariate derived from expected edge structure. This adjusts
+  higher-order motifs for lower-order (edge) composition while preserving the
+  same baseline exposure.
+
+Hybrid results are returned by `top_motifs(..., strategy = "hybrid")`. FDR is
+computed separately for node/edge motifs and triangle/wedge motifs.
+
+## Assumptions
+
+- Delaunay edges are a reasonable proxy for spatial adjacency in each sample.
+- Pruning by `max_edge_len` removes long-range edges without removing meaningful
+  local adjacency.
+- Cell labels are accurate and consistent across samples.
+- Samples are independent, and motif counts follow a negative binomial model.
+- The volume offsets approximate expected counts under a graph with preserved
+  label volumes (degree sums) and total edge count.
+
+# User guide
+
+## Concepts and terminology
+
+- Sample: a single spatial dataset (one slide, region, or image).
+- cellgraph: the main object produced by `build_cell_graphs()` and augmented by
+  `count_motifs_graphs()` and `motif_edger()`.
+- Motif: a node, edge, triangle, or wedge defined by labels and counted per
+  sample.
+- Offset: a log expected count used in the GLM to normalize for exposure.
+- Strategy: `volume` or `hybrid` modeling choice used in `top_motifs()`.
+
+## Required inputs
+
+1. `cells_by_sample`: a named list of data frames. Each data frame must have:
+   - Column 1: numeric x coordinate
+   - Column 2: numeric y coordinate
+   - Column 3: label (character or factor)
+2. `sample_df`: a data frame with one row per sample and row names equal to
+   `names(cells_by_sample)`.
+
+## Build graphs and count motifs
+
+```{r build-and-count}
+cellgraph <- build_cell_graphs(cells_by_sample, n_cores = 4)
+cellgraph <- count_motifs_graphs(
+  cellgraph,
+  max_edge_len = 50,
+  include_wedge = TRUE,
+  n_cores = 4
+)
+```
+
+## Choose a Delaunay cutoff (max_edge_len)
+
+Inspect the edge-length distribution and choose a cutoff that removes the long
+tail while keeping local neighbors. The cutoff is in the same units as your
+coordinates.
+
+```{r delaunay-cutoff}
+edge_lengths <- unlist(lapply(cellgraph$per_sample_graph, function(ps) ps$edge_len))
+
+ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
+  ggplot2::geom_density(fill = "#4477aa", alpha = 0.3, color = "#223355") +
+  ggplot2::scale_x_log10("Edge length (log scale)") +
+  ggplot2::ylab("Density") +
+  ggplot2::ggtitle("Edge length distribution (density, log-x)") +
+  ggplot2::theme_minimal()
+```
+
+## Differential analysis and multivariate designs
+
+```{r edger}
+cellgraph <- motif_edger(
+  cellgraph,
+  sample_df = sample_df,
+  design_formula = "~ condition + batch",
+  strategies = c("volume", "ancova")
+)
+
+top_motifs(cellgraph, strategy = "hybrid", coef = "conditiontreated")
+top_motifs(cellgraph, strategy = "volume", coef = "conditiontreated")
+```
+
+The formula can include multiple covariates, interactions, or continuous
+variables (for example `~ condition + batch + age`).
+
+## Plotting motifs
+
+Spatial plot of a motif within a sample:
+
+```{r plot-spatial}
+plot_sample_graph(
+  cellgraph,
+  sample_name = "s1",
+  max_edge_len = 50,
+  motif_key = "E_a_b",
+  motif_node_size = 0.8
+)
+```
+
+Quantification of motifs across samples:
+
+```{r plot-quantification}
+norm_df <- get_motif_values(cellgraph, value = "norm")
+df_plot <- data.frame(sample = rownames(norm_df), value = norm_df[["T_a_b_c"]])
+df_plot <- merge(df_plot, sample_df, by.x = "sample", by.y = "row.names", all.x = TRUE)
+
+ggplot2::ggplot(df_plot, ggplot2::aes(x = condition, y = value, fill = condition)) +
+  ggplot2::geom_boxplot() +
+  ggplot2::geom_jitter(width = 0.1, alpha = 0.6) +
+  ggplot2::ylab("Normalized motif count (volume offsets)") +
+  ggplot2::xlab("condition")
+```

@@ -5,3 +5,7 @@
 ^DumpOld$
 ^inst/scripts/dev_workflow\\.R$
 ^LICENSE\\.md$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$
+^\.github$

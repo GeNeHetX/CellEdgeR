@@ -51,3 +51,4 @@ rsconnect/
 
 .DS_Store
 inst/scripts/dev_workflow.R
+docs
