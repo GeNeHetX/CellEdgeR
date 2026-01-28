@@ -6,9 +6,9 @@ Returns a ranked data frame of motifs using strategy results stored by
 ## Usage
 
 ``` r
-top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume",
-  "hierarchical"), coef = NULL, model = c("full", "null"), n = Inf,
-  fdr_method = "BH", append_strategies = NULL)
+top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume"),
+  coef = NULL, model = c("full", "null"), n = Inf, fdr_method = "BH",
+  append_strategies = NULL)
 ```
 
 ## Arguments
@@ -19,9 +19,9 @@ top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume",
 
 - strategy:
 
-  Which strategy to use: `hybrid`, `ancova`, `volume`, or `hierarchical`
-  (defaults to `hybrid`; hybrid applies volume to node/edge motifs and
-  ancova to triangle/wedge motifs).
+  Which strategy to use: `hybrid`, `ancova`, or `volume` (defaults to
+  `hybrid`; hybrid applies volume to node/edge motifs and ancova to
+  triangle/wedge motifs).
 
 - coef:
 
@@ -76,9 +76,6 @@ res <- motif_edger(motifs, sample_df, "~ condition")
 #> Fitting edgeR (QL) for volume offsets...
 #> Warning: No residual df: cannot estimate dispersion
 #> edgeR dispersion estimation failed for volume/full model; tests will be empty.
-#> Fitting edgeR (QL) for hierarchical offsets...
-#> Warning: No residual df: cannot estimate dispersion
-#> edgeR dispersion estimation failed for hierarchical/full model; tests will be empty.
 #> Fitting ancova models (per motif)...
 #> Warning: No residual df: cannot estimate dispersion
 #> Warning: Ancova dispersion could not be estimated; returning NA results.

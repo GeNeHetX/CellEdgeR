@@ -1,6 +1,6 @@
 # Artifact check: residuals versus edge density
 
-Plot per-sample log residuals from hierarchical offsets against total
+Plot per-sample log residuals from edge-derived offsets against total
 edge density.
 
 ## Usage

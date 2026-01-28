@@ -110,7 +110,7 @@
 <span></span>
 <span><span class="va">diff_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/top_motifs.html">top_motifs</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">diff_tbl</span><span class="op">)</span></span></code></pre></div>
-<p><code><a href="reference/motif_edger.html">motif_edger()</a></code> runs multiple strategies by default (<code>volume</code>, <code>hierarchical</code>, <code>ancova</code>) and stores results in <code>cellgraph$edger$strategies</code>. <code><a href="reference/top_motifs.html">top_motifs()</a></code> defaults to the <code>hybrid</code> strategy (volume for node/edge motifs and ancova for triangle/wedge motifs), and reports <code>model_used</code> for each motif.</p>
+<p><code><a href="reference/motif_edger.html">motif_edger()</a></code> runs volume and ancova strategies by default and stores results in <code>cellgraph$edger$strategies</code>. <code><a href="reference/top_motifs.html">top_motifs()</a></code> defaults to the <code>hybrid</code> strategy (volume for node/edge motifs and ancova for triangle/wedge motifs), and reports <code>model_used</code> for each motif.</p>
 </li>
 <li>
 <p><strong>Inspect/visualize motifs (optional)</strong></p>
@@ -181,11 +181,11 @@
 <li>
 <code><a href="reference/merge_motif_objs.html">merge_motif_objs()</a></code>: Merge two motif objects and recompute offsets/normalized counts.</li>
 <li>
-<code><a href="reference/motif_edger.html">motif_edger()</a></code>: Fit differential motif models (volume, hierarchical, ancova) and store results.</li>
+<code><a href="reference/motif_edger.html">motif_edger()</a></code>: Fit differential motif models (volume, ancova) and store results.</li>
 <li>
 <code><a href="reference/top_motifs.html">top_motifs()</a></code>: Return a ranked data frame of motifs for a chosen strategy/coef.</li>
 <li>
-<code><a href="reference/get_motif_values.html">get_motif_values()</a></code>: Return raw/normalized motif values (optionally including hierarchical submotifs; normalized uses <code>volume</code> offsets).</li>
+<code><a href="reference/get_motif_values.html">get_motif_values()</a></code>: Return raw/normalized motif values (optionally including lower-order submotifs; normalized uses <code>volume</code> offsets).</li>
 <li>
 <code><a href="reference/plot_sample_graph.html">plot_sample_graph()</a></code>: Plot one sample’s graph and highlight motifs.</li>
 <li>

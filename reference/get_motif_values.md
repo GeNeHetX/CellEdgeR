@@ -1,13 +1,13 @@
 # Retrieve motif values (raw, normalized)
 
-Pulls raw counts or normalized counts for motifs into a
-samples-by-motifs data frame.
+Pulls raw counts or normalized counts for a motif (or its lower-order
+submotifs) into a samples-by-motifs data frame.
 
 ## Usage
 
 ``` r
 get_motif_values(cellgraph, motif_key = NULL, include_submotifs = FALSE,
-  value = c("raw", "norm"), offset_mode = NULL)
+  value = c("raw", "norm"))
 ```
 
 ## Arguments
@@ -24,17 +24,12 @@ get_motif_values(cellgraph, motif_key = NULL, include_submotifs = FALSE,
 
 - include_submotifs:
 
-  Logical; if `TRUE`, include submotifs referenced by hierarchical
-  offsets.
+  Logical; if `TRUE`, include lower-order submotifs implied by the motif
+  key (edges for triangles/wedges, nodes for edges).
 
 - value:
 
   Which value to return: `raw` or `norm`.
-
-- offset_mode:
-
-  Offset set name to use for normalized values; only `volume` is
-  supported to match the hybrid modeling offsets.
 
 ## Value
 
@@ -44,8 +39,8 @@ by unique submotifs.
 
 ## Details
 
-Normalized values are computed directly from the selected offset set so
-they match the offsets used by
+Normalized values are computed directly from the volume offsets so they
+match the offsets used by
 [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
 (including node TMM adjustments when present). Call `get_motif_values()`
 multiple times to retrieve different value types. Submotifs are derived
@@ -73,11 +68,11 @@ motifs <- count_motifs_graphs(graphs, max_edge_len = 3)
 #> Warning: no non-missing arguments to max; returning -Inf
 #> Warning: no non-missing arguments to max; returning -Inf
 tri_key <- rownames(motifs$raw_count$triangle)[1]
-get_motif_values(motifs, motif_key = tri_key, value = "raw", offset_mode = "volume")
+get_motif_values(motifs, motif_key = tri_key, value = "raw")
 #>    T_A_A_B
 #> s1       1
 #> s2       0
-get_motif_values(motifs, motif_key = tri_key, value = "norm", offset_mode = "volume")
+get_motif_values(motifs, motif_key = tri_key, value = "norm")
 #>    T_A_A_B
 #> s1   1.125
 #> s2   0.000

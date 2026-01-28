@@ -7,7 +7,7 @@ results for later extraction.
 
 ``` r
 motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
-  merge_triplets = FALSE, strategies = c("volume", "hierarchical", "ancova"))
+  merge_triplets = FALSE, strategies = c("volume", "ancova"))
 ```
 
 ## Arguments
@@ -40,22 +40,21 @@ motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
 
 - strategies:
 
-  Character vector of strategies to run; defaults to `volume`,
-  `hierarchical`, and `ancova`.
+  Character vector of strategies to run; defaults to `volume` and
+  `ancova`.
 
 ## Details
 
-Three strategies are supported by default:
+Two strategies are supported by default:
 
 - `volume`: volume offsets (Chung-Lu baseline)
-
-- `hierarchical`: sub-motif offsets using fitted edges (hier\\null)
 
 - `ancova`: volume offsets plus edge-force covariates per triangle/wedge
 
 Use
 [`top_motifs`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
-to extract ranked tables with logFC and FDR.
+to extract ranked tables with logFC and FDR. The hybrid summary combines
+volume (nodes/edges) and ancova (triangles/wedges).
 
 ## Value
 
@@ -63,7 +62,7 @@ The input cellgraph augmented with `edger`, containing:
 
 - `strategies`:
 
-  Named list of strategy results (`volume`, `hierarchical`, `ancova`).
+  Named list of strategy results (`volume`, `ancova`).
 
 - `motif_info`:
 
@@ -102,9 +101,6 @@ res <- motif_edger(motifs, sample_df, "~ condition")
 #> Fitting edgeR (QL) for volume offsets...
 #> Warning: No residual df: cannot estimate dispersion
 #> edgeR dispersion estimation failed for volume/full model; tests will be empty.
-#> Fitting edgeR (QL) for hierarchical offsets...
-#> Warning: No residual df: cannot estimate dispersion
-#> edgeR dispersion estimation failed for hierarchical/full model; tests will be empty.
 #> Fitting ancova models (per motif)...
 #> Warning: No residual df: cannot estimate dispersion
 #> Warning: Ancova dispersion could not be estimated; returning NA results.

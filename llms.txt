@@ -80,8 +80,8 @@ library(CellEdgeR)
     ```
 
     [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-    runs multiple strategies by default (`volume`, `hierarchical`,
-    `ancova`) and stores results in `cellgraph$edger$strategies`.
+    runs volume and ancova strategies by default and stores results in
+    `cellgraph$edger$strategies`.
     [`top_motifs()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
     defaults to the `hybrid` strategy (volume for node/edge motifs and
     ancova for triangle/wedge motifs), and reports `model_used` for each
@@ -165,12 +165,11 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - [`merge_motif_objs()`](https://GeNeHetX.github.io/CellEdgeR/reference/merge_motif_objs.md):
   Merge two motif objects and recompute offsets/normalized counts.
 - [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md):
-  Fit differential motif models (volume, hierarchical, ancova) and store
-  results.
+  Fit differential motif models (volume, ancova) and store results.
 - [`top_motifs()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md):
   Return a ranked data frame of motifs for a chosen strategy/coef.
 - [`get_motif_values()`](https://GeNeHetX.github.io/CellEdgeR/reference/get_motif_values.md):
-  Return raw/normalized motif values (optionally including hierarchical
+  Return raw/normalized motif values (optionally including lower-order
   submotifs; normalized uses `volume` offsets).
 - [`plot_sample_graph()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_sample_graph.md):
   Plot one sample’s graph and highlight motifs.
