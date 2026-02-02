@@ -28,7 +28,8 @@ cellgraph <- motif_edger(
   strategies = c("volume", "ancova")
 )
 
-top_motifs(cellgraph, strategy = "hybrid", coef = "conditiontreated")
+top_motifs_simple(cellgraph, coef = "conditiontreated")
+top_motifs_triplet(cellgraph, strategy = "ancova", coef = "conditiontreated")
 ```
 
 ## Methodology (volume and hybrid)
@@ -46,7 +47,8 @@ Motifs are counted on the pruned graph and stored by layer:
 - Nodes: `N_<label>`
 - Edges: `E_<label1>_<label2>` (unordered)
 - Triangles: `T_<label1>_<label2>_<label3>` (unordered)
-- Wedges: `W_<label1>_<label2>_<label3>` (unordered, optional)
+- Wedges: `W_<label1>_<label2>_<label3>` (centered, optional)
+- Triplets (merged): `TP_<label1>_<label2>_<label3>` (unordered)
 
 Counts are per sample, yielding a motif-by-sample matrix for each layer.
 
@@ -65,7 +67,8 @@ that preserves these volumes:
   layer.
 - Edges: `log(vol_a) + log(vol_b) - log(2m)`
 - Triangles: `log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)`
-- Wedges: same volume scaling as triangles (optional).
+- Wedges: centered triples, using `center_pairs` (sum of
+  degree\*(degree-1) for the center label) and leaf volumes.
 
 A small `offset_pseudo` is used to avoid log(0).
 
@@ -77,22 +80,26 @@ QL) with the volume offset. The design matrix comes from
 logFC is interpreted as change in motif rate relative to the volume
 baseline.
 
-Use `top_motifs(..., strategy = "volume")` to extract results from this
-model.
+Use
+[`top_motifs_simple()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
+to extract node/edge results from this model.
 
 ### Hybrid model
 
 The hybrid strategy applies:
 
 - The volume model for node and edge motifs.
-- An ANCOVA-style per-motif model for triangle and wedge motifs, using
-  volume offsets plus a covariate derived from expected edge structure.
-  This adjusts higher-order motifs for lower-order (edge) composition
-  while preserving the same baseline exposure.
+- An ANCOVA-style per-motif model for 3-node motifs (triangles/wedges or
+  merged triplets), using volume offsets plus a covariate derived from
+  expected edge structure. This adjusts higher-order motifs for
+  lower-order (edge) composition while preserving the same baseline
+  exposure. In `triplet_mode = "closure"`, triangles are adjusted by
+  total triples (open+closed), while wedges use edge-derived covariates.
 
-Hybrid results are returned by `top_motifs(..., strategy = "hybrid")`.
-FDR is computed separately for node/edge motifs and triangle/wedge
-motifs.
+Hybrid results can be reconstructed by combining
+[`top_motifs_simple()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
+(volume) with `top_motifs_triplet(..., strategy = "ancova")`. FDR is
+computed separately for node/edge motifs and 3-node motifs.
 
 ### Assumptions
 
@@ -121,8 +128,10 @@ motifs.
   per sample.
 - Offset: a log expected count used in the GLM to normalize for
   exposure.
-- Strategy: `volume` or `hybrid` modeling choice used in
-  [`top_motifs()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md).
+- Strategy: `volume` or `ancova` modeling choice used in motif
+  retrieval.
+- Motif space: the combinatorial set of label-based motifs; see
+  [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md).
 
 ### Required inputs
 
@@ -173,12 +182,42 @@ cellgraph <- motif_edger(
   strategies = c("volume", "ancova")
 )
 
-top_motifs(cellgraph, strategy = "hybrid", coef = "conditiontreated")
-top_motifs(cellgraph, strategy = "volume", coef = "conditiontreated")
+top_motifs_simple(cellgraph, coef = "conditiontreated")
+top_motifs_triplet(cellgraph, strategy = "ancova", coef = "conditiontreated")
 ```
 
 The formula can include multiple covariates, interactions, or continuous
 variables (for example `~ condition + batch + age`).
+
+### Triplet handling
+
+For 3-node motifs, you can choose how wedges and triangles are handled:
+
+- `triplet_mode = "merge"`: wedges and triangles are collapsed into
+  unordered triplet motifs (tests overall triplet abundance).
+- `triplet_mode = "closure"`: wedges are tested for abundance, then
+  triangles are modeled for closure using total triples (open+closed).
+
+Both modes require `count_motifs_graphs(..., include_wedge = TRUE)`.
+
+### Motif labels vs graph isomorphisms
+
+CellEdgeR counts **labelled motifs** (colored graphlets): each distinct
+label combination is a separate motif, even when the underlying
+unlabeled topology is the same. This differs from graph isomorphism
+counts, which collapse motifs by topology alone.
+`triplet_mode = "merge"` only collapses open vs closed triples for a
+*given label multiset*; it does **not** merge distinct label
+assignments.
+
+### Motif space size
+
+You can summarize how many label-based motifs are possible given the
+label set and triplet handling mode:
+
+``` r
+motif_space_size(cellgraph)
+```
 
 ### Plotting motifs
 

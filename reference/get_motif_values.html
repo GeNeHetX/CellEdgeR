@@ -86,6 +86,7 @@ triangles/wedges, nodes for edges) and then filtered to motifs present in the ob
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">graphs</span> <span class="op">&lt;-</span> <span class="fu"><a href="build_cell_graphs.html">build_cell_graphs</a></span><span class="op">(</span><span class="va">cells</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">motifs</span> <span class="op">&lt;-</span> <span class="fu"><a href="count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span><span class="va">graphs</span>, max_edge_len <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Erosion enabled but no boundary masks provided; counting all cells.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting node motifs (cells by label)…</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting edge motifs (unordered label pairs)…</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting triangle motifs (unordered label triplets) in C++…</span>

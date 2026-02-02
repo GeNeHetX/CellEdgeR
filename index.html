@@ -57,7 +57,7 @@
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p>CellEdgeR builds per-sample Delaunay graphs, counts motifs (nodes, edges, triangles, optional wedges), and fits edgeR models. Offsets are computed once and stored in the cellgraph (offset modes: <code>volume</code>, <code>hier_null</code>): - Node offsets: <code>log(total cells) + log(TMM)</code> when available. - Edge/triangle/wedge offsets: structural Chung-Lu (volume-based). Motif keys are prefixed by layer: <code>N_</code> (nodes), <code>E_</code> (edges), <code>T_</code> (triangles), <code>W_</code> (wedge), and <code>TW_</code> when triangles/wedge are merged for modeling.</p>
+<p>CellEdgeR builds per-sample Delaunay graphs, counts motifs (nodes, edges, triangles, optional wedges), and fits edgeR models. Offsets are computed once and stored in the cellgraph (offset modes: <code>volume</code>, <code>hier_null</code>): - Node offsets: <code>log(total cells) + log(TMM)</code> when available. - Edge/triangle/wedge offsets: structural Chung-Lu (volume-based). Motif keys are prefixed by layer: <code>N_</code> (nodes), <code>E_</code> (edges), <code>T_</code> (triangles), <code>W_</code> (wedge), and <code>TP_</code> when triangles/wedges are merged into unordered triplets.</p>
 </div>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
@@ -76,7 +76,7 @@
 </h2>
 <ol style="list-style-type: decimal">
 <li>
-<p><strong>Prepare your data</strong> Provide a <em>named</em> list of samples. Each element is a data frame with numeric <code>x</code>, <code>y</code> coordinates in the first two columns and a label vector (cell type, cluster, etc.) in the third column.</p>
+<p><strong>Prepare your data</strong> Provide a <em>named</em> list of samples. Each element is a data frame with numeric <code>x</code>, <code>y</code> coordinates in the first two columns and a label vector (cell type, cluster, etc.) in the third column. Optionally add a logical <code>boundary</code>/<code>is_boundary</code> column to flag boundary cells for erosion (excluded by default).</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">samples_list</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/make_demo_samples.html">make_demo_samples</a></span><span class="op">(</span>n_cells<span class="op">=</span><span class="fl">10000</span>,seed <span class="op">=</span> <span class="fl">42</span><span class="op">)</span> <span class="co"># enriches T_a_b_c in the second half by default</span></span>
 <span></span>
@@ -104,13 +104,14 @@
 <code class="sourceCode R"><span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/motif_edger.html">motif_edger</a></span><span class="op">(</span></span>
 <span>  cellgraph <span class="op">=</span> <span class="va">cellgraph</span>,</span>
 <span>  sample_df <span class="op">=</span> <span class="va">metadata_df</span>,  <span class="co"># rownames must match sample names</span></span>
-<span>  design_formula <span class="op">=</span> <span class="st">"~ condition + batch"</span>,</span>
-<span>  merge_triplets <span class="op">=</span> <span class="cn">FALSE</span>    <span class="co"># set TRUE to merge triangles+wedge as TW_*</span></span>
+<span>  design_formula <span class="op">=</span> <span class="st">"~ condition + batch"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">diff_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/top_motifs.html">top_motifs</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">diff_tbl</span><span class="op">)</span></span></code></pre></div>
-<p><code><a href="reference/motif_edger.html">motif_edger()</a></code> runs volume and ancova strategies by default and stores results in <code>cellgraph$edger$strategies</code>. <code><a href="reference/top_motifs.html">top_motifs()</a></code> defaults to the <code>hybrid</code> strategy (volume for node/edge motifs and ancova for triangle/wedge motifs), and reports <code>model_used</code> for each motif.</p>
+<span><span class="va">simple_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="va">triplet_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">simple_tbl</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">triplet_tbl</span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="reference/motif_edger.html">motif_edger()</a></code> runs volume and ancova strategies by default and stores results in <code>cellgraph$edger$strategies</code>. Use <code><a href="reference/top_motifs_simple.html">top_motifs_simple()</a></code> for node/edge motifs (volume offsets) and <code><a href="reference/top_motifs_triplet.html">top_motifs_triplet()</a></code> for 3-node motifs (volume or ancova). For triplets, use <code>triplet_mode = "merge"</code> to collapse wedges+triangles into unordered triplet motifs, or <code>triplet_mode = "closure"</code> to model wedges separately and test triangle closure using total triples (open+closed) as a covariate. Both require <code>count_motifs_graphs(..., include_wedge = TRUE)</code>.</p>
 </li>
 <li>
 <p><strong>Inspect/visualize motifs (optional)</strong></p>
@@ -162,10 +163,13 @@
 </h2>
 <ul>
 <li>Reuse the <code>graph_obj</code> when experimenting with pruning or the wedge option (<code>include_wedge</code>) to avoid rerunning the triangulation.</li>
+<li>If you want erosion, provide a boundary mask per sample (column <code>boundary</code>/<code>is_boundary</code> or <code>erosion_cells</code>); motifs touching those cells are excluded without re-triangulating.</li>
 <li>Record the <code>max_edge_len</code> used for each run so downstream results stay traceable.</li>
 <li>For quick inspection, use <code>get_motif_values(cellgraph, value = "norm")</code> and apply your own plotting/statistics.</li>
 <li>
 <code>get_motif_values(..., value = "norm")</code> uses the <code>volume</code> offsets only, matching the hybrid modeling offsets.</li>
+<li>
+<code><a href="reference/motif_space_size.html">motif_space_size()</a></code> reports the combinatorial number of possible motif labels given the stored label set and triplet mode.</li>
 </ul>
 </div>
 <div class="section level2">
@@ -183,7 +187,11 @@
 <li>
 <code><a href="reference/motif_edger.html">motif_edger()</a></code>: Fit differential motif models (volume, ancova) and store results.</li>
 <li>
-<code><a href="reference/top_motifs.html">top_motifs()</a></code>: Return a ranked data frame of motifs for a chosen strategy/coef.</li>
+<code><a href="reference/top_motifs_simple.html">top_motifs_simple()</a></code>: Return ranked node/edge motifs (volume offsets).</li>
+<li>
+<code><a href="reference/top_motifs_triplet.html">top_motifs_triplet()</a></code>: Return ranked 3-node motifs (volume or ancova; separate or merged).</li>
+<li>
+<code><a href="reference/motif_space_size.html">motif_space_size()</a></code>: Count possible motif labels based on label set and triplet mode.</li>
 <li>
 <code><a href="reference/get_motif_values.html">get_motif_values()</a></code>: Return raw/normalized motif values (optionally including lower-order submotifs; normalized uses <code>volume</code> offsets).</li>
 <li>

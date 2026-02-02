@@ -16,6 +16,8 @@
   : Merge motif objects
 - [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
   : Differential motif testing with multiple strategies
+- [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
+  : Count possible motif labels
 - [`plot_motif_artifact_check()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_artifact_check.md)
   : Artifact check: residuals versus edge density
 - [`plot_motif_slope_test()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_slope_test.md)
@@ -24,3 +26,7 @@
   : Plot a sample graph with highlighted motifs
 - [`top_motifs()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
   : Extract top motifs from stored strategies
+- [`top_motifs_simple()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
+  : Extract top simple motifs (nodes and edges)
+- [`top_motifs_triplet()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
+  : Extract top 3-node motifs

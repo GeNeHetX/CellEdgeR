@@ -2,6 +2,11 @@
 
 Returns a ranked data frame of motifs using strategy results stored by
 [`motif_edger`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md).
+For the recommended interface, use
+[`top_motifs_simple`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
+(nodes/edges) and
+[`top_motifs_triplet`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
+(3-node motifs).
 
 ## Usage
 
@@ -21,7 +26,7 @@ top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume"),
 
   Which strategy to use: `hybrid`, `ancova`, or `volume` (defaults to
   `hybrid`; hybrid applies volume to node/edge motifs and ancova to
-  triangle/wedge motifs).
+  3-node motifs).
 
 - coef:
 
@@ -50,11 +55,13 @@ top_motifs(cellgraph, strategy = c("hybrid", "ancova", "volume"),
 A data frame with columns: motif, motif\\type, logFC, PValue, FDR, and
 model\\used. Additional `logFC_<strategy>` and `PValue_<strategy>`
 columns are added when requested. For `hybrid`, FDR is computed
-separately for node/edge motifs and triangle/wedge motifs.
+separately for node/edge motifs and 3-node motifs.
 
 ## See also
 
-[`motif_edger`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
+[`motif_edger`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md),
+[`top_motifs_simple`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md),
+[`top_motifs_triplet`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
 
 ## Examples
 
@@ -65,6 +72,7 @@ cells <- list(
 )
 graphs <- build_cell_graphs(cells, verbose = FALSE)
 motifs <- count_motifs_graphs(graphs, max_edge_len = 3)
+#> Erosion enabled but no boundary masks provided; counting all cells.
 #> Counting node motifs (cells by label)…
 #> Counting edge motifs (unordered label pairs)…
 #> Counting triangle motifs (unordered label triplets) in C++…
@@ -89,4 +97,16 @@ top_motifs(res, strategy = "volume", coef = "conditiontreated")
 #> 5   E_B_B       edge    NA     NA  NA     volume
 #> 6 T_A_A_B   triangle    NA     NA  NA     volume
 #> 7 T_A_B_B   triangle    NA     NA  NA     volume
+top_motifs_simple(res, coef = "conditiontreated")
+#> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
+#>   motif motif_type logFC PValue FDR model_used
+#> 1   N_A       node    NA     NA  NA     volume
+#> 2   N_B       node    NA     NA  NA     volume
+#> 3 E_A_A       edge    NA     NA  NA     volume
+#> 4 E_A_B       edge    NA     NA  NA     volume
+#> 5 E_B_B       edge    NA     NA  NA     volume
+top_motifs_triplet(res, strategy = "ancova", coef = "conditiontreated")
+#>           motif motif_type logFC PValue FDR model_used
+#> T_A_A_B T_A_A_B   triangle    NA     NA  NA     ancova
+#> T_A_B_B T_A_B_B   triangle    NA     NA  NA     ancova
 ```

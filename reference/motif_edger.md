@@ -7,7 +7,8 @@ results for later extraction.
 
 ``` r
 motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
-  merge_triplets = FALSE, strategies = c("volume", "ancova"))
+  triplet_mode = c("separate", "merge", "closure"),
+  strategies = c("volume", "ancova"))
 ```
 
 ## Arguments
@@ -33,10 +34,13 @@ motif_edger(cellgraph, sample_df, design_formula, verbose = TRUE,
 
   Logical; print progress for edgeR.
 
-- merge_triplets:
+- triplet_mode:
 
-  If `TRUE`, triangles and wedges are merged under a shared TW prefix
-  before fitting.
+  How to handle 3-node motifs: `separate` keeps triangle and wedge
+  motifs (default), `merge` combines wedges+triangles into unordered
+  triplet motifs, and `closure` models triangles with total-triplet
+  adjustment. `merge` and `closure` require
+  `count_motifs_graphs(..., include_wedge = TRUE)`.
 
 - strategies:
 
@@ -49,12 +53,15 @@ Two strategies are supported by default:
 
 - `volume`: volume offsets (Chung-Lu baseline)
 
-- `ancova`: volume offsets plus edge-force covariates per triangle/wedge
+- `ancova`: volume offsets plus edge-force covariates for 3-node motifs
 
 Use
+[`top_motifs_simple`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
+for node/edge motifs and
+[`top_motifs_triplet`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
+for 3-node motifs. The hybrid summary in
 [`top_motifs`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
-to extract ranked tables with logFC and FDR. The hybrid summary combines
-volume (nodes/edges) and ancova (triangles/wedges).
+combines volume (nodes/edges) and ancova (3-node motifs).
 
 ## Value
 
@@ -72,14 +79,16 @@ The input cellgraph augmented with `edger`, containing:
 
   Sample metadata used to build the model matrix.
 
-- `merge_triplets`:
+- `triplet_mode`:
 
-  Whether triangles+wedge were merged.
+  Triplet handling mode used for 3-node motifs.
 
 ## See also
 
 [`count_motifs_graphs`](https://GeNeHetX.github.io/CellEdgeR/reference/count_motifs_graphs.md),
-[`top_motifs`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
+[`top_motifs`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md),
+[`top_motifs_simple`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md),
+[`top_motifs_triplet`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
 
 ## Examples
 
@@ -90,6 +99,7 @@ cells <- list(
 )
 graphs <- build_cell_graphs(cells, verbose = FALSE)
 motifs <- count_motifs_graphs(graphs, max_edge_len = 3)
+#> Erosion enabled but no boundary masks provided; counting all cells.
 #> Counting node motifs (cells by label)…
 #> Counting edge motifs (unordered label pairs)…
 #> Counting triangle motifs (unordered label triplets) in C++…
@@ -104,13 +114,16 @@ res <- motif_edger(motifs, sample_df, "~ condition")
 #> Fitting ancova models (per motif)...
 #> Warning: No residual df: cannot estimate dispersion
 #> Warning: Ancova dispersion could not be estimated; returning NA results.
-head(top_motifs(res, strategy = "volume", coef = "conditiontreated"))
+head(top_motifs_simple(res, coef = "conditiontreated"))
 #> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
-#>     motif motif_type logFC PValue FDR model_used
-#> 1     N_A       node    NA     NA  NA     volume
-#> 2     N_B       node    NA     NA  NA     volume
-#> 3   E_A_A       edge    NA     NA  NA     volume
-#> 4   E_A_B       edge    NA     NA  NA     volume
-#> 5   E_B_B       edge    NA     NA  NA     volume
-#> 6 T_A_A_B   triangle    NA     NA  NA     volume
+#>   motif motif_type logFC PValue FDR model_used
+#> 1   N_A       node    NA     NA  NA     volume
+#> 2   N_B       node    NA     NA  NA     volume
+#> 3 E_A_A       edge    NA     NA  NA     volume
+#> 4 E_A_B       edge    NA     NA  NA     volume
+#> 5 E_B_B       edge    NA     NA  NA     volume
+head(top_motifs_triplet(res, strategy = "ancova", coef = "conditiontreated"))
+#>           motif motif_type logFC PValue FDR model_used
+#> T_A_A_B T_A_A_B   triangle    NA     NA  NA     ancova
+#> T_A_B_B T_A_B_B   triangle    NA     NA  NA     ancova
 ```

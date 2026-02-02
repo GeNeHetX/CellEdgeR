@@ -93,7 +93,8 @@ offsets.</p>
 <span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"ancova"</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/top_motifs.html">top_motifs</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"hybrid"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="methodology-volume-and-hybrid">Methodology (volume and hybrid)<a class="anchor" aria-label="anchor" href="#methodology-volume-and-hybrid"></a>
@@ -115,7 +116,10 @@ motifs. Motifs are counted on the pruned graph and stored by layer:</p>
 <code>T_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
 (unordered)</li>
 <li>Wedges: <code>W_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
-(unordered, optional)</li>
+(centered, optional)</li>
+<li>Triplets (merged):
+<code>TP_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
+(unordered)</li>
 </ul>
 <p>Counts are per sample, yielding a motif-by-sample matrix for each
 layer.</p>
@@ -138,7 +142,8 @@ the node layer.</li>
 <li>Triangles:
 <code>log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)</code>
 </li>
-<li>Wedges: same volume scaling as triangles (optional).</li>
+<li>Wedges: centered triples, using <code>center_pairs</code> (sum of
+degree*(degree-1) for the center label) and leaf volumes.</li>
 </ul>
 <p>A small <code>offset_pseudo</code> is used to avoid log(0).</p>
 </div>
@@ -150,8 +155,8 @@ the node layer.</li>
 <code>design_formula</code> and can include multiple covariates. The
 resulting logFC is interpreted as change in motif rate relative to the
 volume baseline.</p>
-<p>Use <code>top_motifs(..., strategy = "volume")</code> to extract
-results from this model.</p>
+<p>Use <code><a href="../reference/top_motifs_simple.html">top_motifs_simple()</a></code> to extract node/edge results
+from this model.</p>
 </div>
 <div class="section level3">
 <h3 id="hybrid-model">Hybrid model<a class="anchor" aria-label="anchor" href="#hybrid-model"></a>
@@ -159,14 +164,18 @@ results from this model.</p>
 <p>The hybrid strategy applies:</p>
 <ul>
 <li>The volume model for node and edge motifs.</li>
-<li>An ANCOVA-style per-motif model for triangle and wedge motifs, using
-volume offsets plus a covariate derived from expected edge structure.
-This adjusts higher-order motifs for lower-order (edge) composition
-while preserving the same baseline exposure.</li>
+<li>An ANCOVA-style per-motif model for 3-node motifs (triangles/wedges
+or merged triplets), using volume offsets plus a covariate derived from
+expected edge structure. This adjusts higher-order motifs for
+lower-order (edge) composition while preserving the same baseline
+exposure. In <code>triplet_mode = "closure"</code>, triangles are
+adjusted by total triples (open+closed), while wedges use edge-derived
+covariates.</li>
 </ul>
-<p>Hybrid results are returned by
-<code>top_motifs(..., strategy = "hybrid")</code>. FDR is computed
-separately for node/edge motifs and triangle/wedge motifs.</p>
+<p>Hybrid results can be reconstructed by combining
+<code><a href="../reference/top_motifs_simple.html">top_motifs_simple()</a></code> (volume) with
+<code>top_motifs_triplet(..., strategy = "ancova")</code>. FDR is
+computed separately for node/edge motifs and 3-node motifs.</p>
 </div>
 <div class="section level3">
 <h3 id="assumptions">Assumptions<a class="anchor" aria-label="anchor" href="#assumptions"></a>
@@ -199,8 +208,10 @@ preserved label volumes (degree sums) and total edge count.</li>
 counted per sample.</li>
 <li>Offset: a log expected count used in the GLM to normalize for
 exposure.</li>
-<li>Strategy: <code>volume</code> or <code>hybrid</code> modeling choice
-used in <code><a href="../reference/top_motifs.html">top_motifs()</a></code>.</li>
+<li>Strategy: <code>volume</code> or <code>ancova</code> modeling choice
+used in motif retrieval.</li>
+<li>Motif space: the combinatorial set of label-based motifs; see
+<code><a href="../reference/motif_space_size.html">motif_space_size()</a></code>.</li>
 </ul>
 </div>
 <div class="section level3">
@@ -260,17 +271,54 @@ units as your coordinates.</p>
 <span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"ancova"</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/top_motifs.html">top_motifs</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"hybrid"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="../reference/top_motifs.html">top_motifs</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"volume"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
 <p>The formula can include multiple covariates, interactions, or
 continuous variables (for example
 <code>~ condition + batch + age</code>).</p>
 </div>
 <div class="section level3">
+<h3 id="triplet-handling">Triplet handling<a class="anchor" aria-label="anchor" href="#triplet-handling"></a>
+</h3>
+<p>For 3-node motifs, you can choose how wedges and triangles are
+handled:</p>
+<ul>
+<li>
+<code>triplet_mode = "merge"</code>: wedges and triangles are
+collapsed into unordered triplet motifs (tests overall triplet
+abundance).</li>
+<li>
+<code>triplet_mode = "closure"</code>: wedges are tested for
+abundance, then triangles are modeled for closure using total triples
+(open+closed).</li>
+</ul>
+<p>Both modes require
+<code>count_motifs_graphs(..., include_wedge = TRUE)</code>.</p>
+</div>
+<div class="section level3">
+<h3 id="motif-labels-vs-graph-isomorphisms">Motif labels vs graph isomorphisms<a class="anchor" aria-label="anchor" href="#motif-labels-vs-graph-isomorphisms"></a>
+</h3>
+<p>CellEdgeR counts <strong>labelled motifs</strong> (colored
+graphlets): each distinct label combination is a separate motif, even
+when the underlying unlabeled topology is the same. This differs from
+graph isomorphism counts, which collapse motifs by topology alone.
+<code>triplet_mode = "merge"</code> only collapses open vs closed
+triples for a <em>given label multiset</em>; it does
+<strong>not</strong> merge distinct label assignments.</p>
+</div>
+<div class="section level3">
+<h3 id="motif-space-size">Motif space size<a class="anchor" aria-label="anchor" href="#motif-space-size"></a>
+</h3>
+<p>You can summarize how many label-based motifs are possible given the
+label set and triplet handling mode:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/motif_space_size.html">motif_space_size</a></span><span class="op">(</span><span class="va">cellgraph</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level3">
 <h3 id="plotting-motifs">Plotting motifs<a class="anchor" aria-label="anchor" href="#plotting-motifs"></a>
 </h3>
 <p>Spatial plot of a motif within a sample:</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_sample_graph.html">plot_sample_graph</a></span><span class="op">(</span></span>
 <span>  <span class="va">cellgraph</span>,</span>
 <span>  sample_name <span class="op">=</span> <span class="st">"s1"</span>,</span>
@@ -279,7 +327,7 @@ continuous variables (for example
 <span>  motif_node_size <span class="op">=</span> <span class="fl">0.8</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 <p>Quantification of motifs across samples:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">norm_df</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_motif_values.html">get_motif_values</a></span><span class="op">(</span><span class="va">cellgraph</span>, value <span class="op">=</span> <span class="st">"norm"</span><span class="op">)</span></span>
 <span><span class="va">df_plot</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>sample <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">rownames</a></span><span class="op">(</span><span class="va">norm_df</span><span class="op">)</span>, value <span class="op">=</span> <span class="va">norm_df</span><span class="op">[[</span><span class="st">"T_a_b_c"</span><span class="op">]</span><span class="op">]</span><span class="op">)</span></span>
 <span><span class="va">df_plot</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/merge.html" class="external-link">merge</a></span><span class="op">(</span><span class="va">df_plot</span>, <span class="va">sample_df</span>, by.x <span class="op">=</span> <span class="st">"sample"</span>, by.y <span class="op">=</span> <span class="st">"row.names"</span>, all.x <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>

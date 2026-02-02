@@ -32,7 +32,7 @@ plot_motif_box(
 - layer:
 
   Which layer to plot; when `NULL`, inferred from the motif prefix
-  (`N_`, `E_`, `T_`, `W_`, or `TW_`).
+  (`N_`, `E_`, `T_`, or `W_`).
 
 - sample_df:
 
