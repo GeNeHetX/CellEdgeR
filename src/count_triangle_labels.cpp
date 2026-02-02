@@ -52,7 +52,8 @@ static int intersect_counting(const std::vector<int>& A, const std::vector<int>&
 //' @param label_ids Sequence 1..K (kept for compatibility).
 //'
 //' @return A list with `keys` (label triplets as strings), `counts`, and `tri_total`
-//'   (total number of triangles).
+//'   (total number of triangles). When `count_wedges` is true, also returns wedge
+//'   counts plus `triplet_keys`/`triplet_counts` for centered triples (open+closed).
 //'
 //' @keywords internal
 // [[Rcpp::export(name = "count_triangle_labels_cpp")]]
@@ -78,12 +79,15 @@ List count_triangle_labels_cpp(
 
   std::unordered_map< std::string, int > counter;
   std::unordered_map< std::string, int > wedge_counter;
+  std::unordered_map< std::string, int > triplet_counter;
   counter.reserve(1024);
   wedge_counter.reserve(1024);
+  triplet_counter.reserve(1024);
 
   std::vector<int> tmp;
   long long tri_total = 0;
   long long wedge_total = 0;
+  long long triplet_total = 0;
 
   for (int i = 0; i < n; ++i) {
     const auto& Ni = adj[i];
@@ -118,6 +122,17 @@ List count_triangle_labels_cpp(
           const auto& Nj = adj[j];
           for (size_t jj = ii + 1; jj < m; ++jj) {
             int k = Ni[jj];
+            ++triplet_total;
+            int ta = labels[i];
+            int tb = labels[j];
+            int tc = labels[k];
+            if (ta > tb) std::swap(ta, tb);
+            if (tb > tc) std::swap(tb, tc);
+            if (ta > tb) std::swap(ta, tb);
+            std::string triplet_key = std::to_string(ta) + "_" + std::to_string(tb) + "_" + std::to_string(tc);
+            auto itt = triplet_counter.find(triplet_key);
+            if (itt == triplet_counter.end()) triplet_counter.emplace(triplet_key, 1);
+            else ++(itt->second);
             if (std::binary_search(Nj.begin(), Nj.end(), k)) continue;
             ++wedge_total;
             int center = labels[i];
@@ -153,6 +168,15 @@ List count_triangle_labels_cpp(
     ++wedge_idx;
   }
 
+  CharacterVector triplet_keys(triplet_counter.size());
+  IntegerVector triplet_vals(triplet_counter.size());
+  int triplet_idx = 0;
+  for (auto& kv : triplet_counter) {
+    triplet_keys[triplet_idx] = kv.first;
+    triplet_vals[triplet_idx] = kv.second;
+    ++triplet_idx;
+  }
+
   return List::create(
     _["keys"] = keys,
     _["counts"] = vals,
@@ -160,6 +184,9 @@ List count_triangle_labels_cpp(
     ,
     _["wedge_keys"] = wedge_keys,
     _["wedge_counts"] = wedge_vals,
-    _["wedge_total"] = static_cast<double>(wedge_total)
+    _["wedge_total"] = static_cast<double>(wedge_total),
+    _["triplet_keys"] = triplet_keys,
+    _["triplet_counts"] = triplet_vals,
+    _["triplet_total"] = static_cast<double>(triplet_total)
   );
 }

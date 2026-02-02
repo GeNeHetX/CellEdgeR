@@ -82,9 +82,10 @@ test_that("edgeR pipeline runs with BH correction", {
   expect_true(inherits(res, "cellEdgeR_obj"))
   expect_true(is.list(res$edger$strategies))
   expect_true(all(c("volume", "ancova") %in% names(res$edger$strategies)))
-  tbl <- top_motifs(res, strategy = "volume", coef = "conditiontreated")
+  tbl <- top_motifs_simple(res, coef = "conditiontreated")
   expect_true(is.data.frame(tbl))
   expect_true(all(c("motif", "motif_type", "logFC", "PValue", "FDR") %in% names(tbl)))
+  expect_true(all(tbl$motif_type %in% c("node", "edge")))
 })
 
 test_that("motif_edger supports intercept-only design", {
@@ -99,10 +100,9 @@ test_that("motif_edger supports intercept-only design", {
     cellgraph = motif_obj,
     sample_df = sample_df,
     design_formula = "~ 1",
-    merge_triplets = FALSE,
     verbose = FALSE
   )
-  tbl <- top_motifs(res, strategy = "volume", model = "null")
+  tbl <- top_motifs_simple(res, model = "null")
   expect_true(all(is.na(tbl$PValue) | is.numeric(tbl$PValue)))
 })
 
@@ -160,13 +160,73 @@ test_that("wedge is modeled when not merged", {
     cellgraph = motif_obj,
     sample_df = sample_df,
     design_formula = "~ group",
-    merge_triplets = FALSE,
     verbose = FALSE
   )
-  tbl <- top_motifs(res, strategy = "volume", coef = "groupg2")
+  tbl <- top_motifs_triplet(res, strategy = "volume", coef = "groupg2")
   expect_true(any(tbl$motif_type == "wedge"))
   if (any(tbl$motif_type == "wedge")) {
     expect_true(all(grepl("^W_", tbl$motif[tbl$motif_type == "wedge"])))
+  }
+})
+
+test_that("triplet_mode merge collapses 3-node motifs", {
+  cells <- list(
+    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
+    s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
+  )
+  graphs <- build_cell_graphs(cells, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
+  res <- motif_edger(
+    cellgraph = motif_obj,
+    sample_df = sample_df,
+    design_formula = "~ group",
+    triplet_mode = "merge",
+    strategies = "volume",
+    verbose = FALSE
+  )
+  expect_true(any(res$edger$motif_info$motif_type == "triplet"))
+  expect_false(any(res$edger$motif_info$motif_type %in% c("triangle", "wedge")))
+  tbl <- top_motifs_triplet(res, strategy = "volume", coef = "groupg2", triplet_mode = "merge")
+  expect_true(all(tbl$motif_type == "triplet"))
+})
+
+test_that("triplet_mode closure uses triplet_force covariate", {
+  cells <- list(
+    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
+    s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
+  )
+  graphs <- build_cell_graphs(cells, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
+  res <- motif_edger(
+    cellgraph = motif_obj,
+    sample_df = sample_df,
+    design_formula = "~ group",
+    triplet_mode = "closure",
+    strategies = "ancova",
+    verbose = FALSE
+  )
+  expect_true("triplet_force" %in% res$edger$strategies$ancova$coef_names)
+})
+
+test_that("erosion drops boundary cells without retriangulating", {
+  cells <- list(
+    s1 = data.frame(
+      x = c(0, 1, 0),
+      y = c(0, 0, 1),
+      label = c("A", "B", "C"),
+      boundary = c(TRUE, FALSE, FALSE)
+    )
+  )
+  graphs <- build_cell_graphs(cells, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, verbose = FALSE)
+  expect_equal(as.numeric(motif_obj$raw_count$node["N_A", "s1"]), 0)
+  expect_equal(as.numeric(motif_obj$raw_count$node["N_B", "s1"]), 1)
+  expect_equal(as.numeric(motif_obj$raw_count$node["N_C", "s1"]), 1)
+  edge_key <- "E_B_C"
+  if (edge_key %in% rownames(motif_obj$raw_count$edge)) {
+    expect_equal(as.numeric(motif_obj$raw_count$edge[edge_key, "s1"]), 1)
   }
 })
 
@@ -191,6 +251,29 @@ test_that("normalized counts follow motifs offsets", {
     dimnames = list(rownames(motif_obj$raw_count$node), motif_obj$sample_name)
   )
   expect_equal(as.matrix(norm$node), as.matrix(motif_obj$raw_count$node) / exp(expected_cells))
+})
+
+test_that("motif_space_size reports combinatorial counts", {
+  cells <- list(
+    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
+    s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
+  )
+  graphs <- build_cell_graphs(cells, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
+  res <- motif_edger(
+    cellgraph = motif_obj,
+    sample_df = sample_df,
+    design_formula = "~ group",
+    triplet_mode = "merge",
+    strategies = "volume",
+    verbose = FALSE
+  )
+  space <- motif_space_size(res)
+  expect_equal(space$labels, 3)
+  expect_equal(space$triplet_mode, "merge")
+  expect_true(isTRUE(space$include_wedge))
+  expect_equal(space$counts$n_possible[space$counts$layer == "triplet"], choose(5, 3))
 })
 
 test_that("geometry-based triangulation tolerates duplicated and collinear points", {

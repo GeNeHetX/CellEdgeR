@@ -4,7 +4,7 @@
 #'
 #' @param norm_counts List of normalized counts (e.g., `cellgraph$norm_counts` from [count_motifs_graphs()]); when multiple offset modes are present, select one via `offset_mode`.
 #' @param motif_key Character motif identifier with prefix (e.g., `"E_A_B"`).
-#' @param layer Which layer to plot; when `NULL`, inferred from the motif prefix (`N_`, `E_`, `T_`, `W_`, or `TW_`).
+#' @param layer Which layer to plot; when `NULL`, inferred from the motif prefix (`N_`, `E_`, `T_`, or `W_`).
 #' @param sample_df Optional data frame of sample metadata; rownames must match the motif columns.
 #' @param group_var Optional column name in `sample_df` to use for grouping/coloring the boxplot.
 #' @return A `ggplot` object.
@@ -32,7 +32,6 @@ plot_motif_box <- function(norm_counts, motif_key, layer = NULL,
       E = "edge",
       T = "triangle",
       W = "wedge",
-      TW = "triangle",
       stop("Cannot infer motif layer from key: ", key)
     )
   }

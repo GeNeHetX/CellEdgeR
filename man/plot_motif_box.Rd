@@ -18,7 +18,7 @@ plot_motif_box(
 
 \item{motif_key}{Character motif identifier with prefix (e.g., \code{"E_A_B"}).}
 
-\item{layer}{Which layer to plot; when \code{NULL}, inferred from the motif prefix (\code{N_}, \code{E_}, \code{T_}, \code{W_}, or \code{TW_}).}
+\item{layer}{Which layer to plot; when \code{NULL}, inferred from the motif prefix (\code{N_}, \code{E_}, \code{T_}, or \code{W_}).}
 
 \item{sample_df}{Optional data frame of sample metadata; rownames must match the motif columns.}
 

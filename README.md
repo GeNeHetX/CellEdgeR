@@ -6,7 +6,7 @@ CellEdgeR builds per-sample Delaunay graphs, counts motifs (nodes, edges, triang
 Offsets are computed once and stored in the cellgraph (offset modes: `volume`, `hier_null`):
 - Node offsets: `log(total cells) + log(TMM)` when available.
 - Edge/triangle/wedge offsets: structural Chung-Lu (volume-based).
-Motif keys are prefixed by layer: `N_` (nodes), `E_` (edges), `T_` (triangles), `W_` (wedge), and `TW_` when triangles/wedge are merged for modeling.
+Motif keys are prefixed by layer: `N_` (nodes), `E_` (edges), `T_` (triangles), `W_` (wedge), and `TP_` when triangles/wedges are merged into unordered triplets.
 
 ## Installation
 Install dependencies and then install the package:
@@ -24,7 +24,8 @@ library(CellEdgeR)
 
 1. **Prepare your data**
    Provide a *named* list of samples. Each element is a data frame with numeric `x`, `y` coordinates in the first two
-   columns and a label vector (cell type, cluster, etc.) in the third column.
+   columns and a label vector (cell type, cluster, etc.) in the third column. Optionally add a logical
+   `boundary`/`is_boundary` column to flag boundary cells for erosion (excluded by default).
 
    ```r
    samples_list <- make_demo_samples(n_cells=10000,seed = 42) # enriches T_a_b_c in the second half by default
@@ -58,17 +59,21 @@ library(CellEdgeR)
    cellgraph <- motif_edger(
      cellgraph = cellgraph,
      sample_df = metadata_df,  # rownames must match sample names
-     design_formula = "~ condition + batch",
-     merge_triplets = FALSE    # set TRUE to merge triangles+wedge as TW_*
+     design_formula = "~ condition + batch"
    )
 
-   diff_tbl <- top_motifs(cellgraph, coef = "conditiontreated")
-   head(diff_tbl)
+   simple_tbl <- top_motifs_simple(cellgraph, coef = "conditiontreated")
+   triplet_tbl <- top_motifs_triplet(cellgraph, strategy = "ancova", coef = "conditiontreated")
+   head(simple_tbl)
+   head(triplet_tbl)
    ```
 
    `motif_edger()` runs volume and ancova strategies by default and stores results in
-   `cellgraph$edger$strategies`. `top_motifs()` defaults to the `hybrid` strategy (volume for node/edge motifs and ancova
-   for triangle/wedge motifs), and reports `model_used` for each motif.
+   `cellgraph$edger$strategies`. Use `top_motifs_simple()` for node/edge motifs (volume offsets)
+   and `top_motifs_triplet()` for 3-node motifs (volume or ancova). For triplets, use
+   `triplet_mode = "merge"` to collapse wedges+triangles into unordered triplet motifs, or
+   `triplet_mode = "closure"` to model wedges separately and test triangle closure using total
+   triples (open+closed) as a covariate. Both require `count_motifs_graphs(..., include_wedge = TRUE)`.
 
 4. **Inspect/visualize motifs (optional)**
 
@@ -122,9 +127,12 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 ## Tips
 - Reuse the `graph_obj` when experimenting with pruning or the wedge option (`include_wedge`) to avoid rerunning the
   triangulation.
+- If you want erosion, provide a boundary mask per sample (column `boundary`/`is_boundary` or `erosion_cells`); motifs
+  touching those cells are excluded without re-triangulating.
 - Record the `max_edge_len` used for each run so downstream results stay traceable.
 - For quick inspection, use `get_motif_values(cellgraph, value = "norm")` and apply your own plotting/statistics.
 - `get_motif_values(..., value = "norm")` uses the `volume` offsets only, matching the hybrid modeling offsets.
+- `motif_space_size()` reports the combinatorial number of possible motif labels given the stored label set and triplet mode.
 
 ## Glossary
 - `make_demo_samples()`: Create a synthetic named list of samples for quick testing (defaults to a boosted `T_a_b_c` motif in the second half; set `boost_motif = FALSE` to disable).
@@ -132,7 +140,9 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - `count_motifs_graphs()`: Count node/edge/triangle (and optional wedge) motifs and compute offsets/normalization.
 - `merge_motif_objs()`: Merge two motif objects and recompute offsets/normalized counts.
 - `motif_edger()`: Fit differential motif models (volume, ancova) and store results.
-- `top_motifs()`: Return a ranked data frame of motifs for a chosen strategy/coef.
+- `top_motifs_simple()`: Return ranked node/edge motifs (volume offsets).
+- `top_motifs_triplet()`: Return ranked 3-node motifs (volume or ancova; separate or merged).
+- `motif_space_size()`: Count possible motif labels based on label set and triplet mode.
 - `get_motif_values()`: Return raw/normalized motif values (optionally including lower-order submotifs; normalized uses `volume` offsets).
 - `plot_sample_graph()`: Plot one sample's graph and highlight motifs.
 - `cellEdgeR_obj`: Main object storing `sample_name`, counts, exposures, offsets, and edgeR results.
