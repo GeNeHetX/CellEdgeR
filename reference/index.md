@@ -22,11 +22,12 @@
   : Artifact check: residuals versus edge density
 - [`plot_motif_slope_test()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_slope_test.md)
   : Slope test for geometric scaling
+- [`plot_motif_volcano()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_volcano.md)
+  : Volcano plot for motif differential results
+- [`plot_motif_volcano_triptych()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_volcano_triptych.md)
+  : Triptych volcano with ordered motif side panels
 - [`plot_sample_graph()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_sample_graph.md)
   : Plot a sample graph with highlighted motifs
-- [`top_motifs()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs.md)
-  : Extract top motifs from stored strategies
-- [`top_motifs_simple()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md)
-  : Extract top simple motifs (nodes and edges)
-- [`top_motifs_triplet()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
-  : Extract top 3-node motifs
+- [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
+  [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
+  : Top motif results

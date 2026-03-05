@@ -5,13 +5,18 @@ labels, suitable for exercising the CellEdgeR workflow without real
 data. When `boost_motif` is `TRUE`, the second half of samples receives
 tightly clustered label triplets to increase a triangle motif (default
 labels: a/b/c or repeats when fewer labels exist). The number of
-triplets scales with `n\_cells`.
+triplets scales with `n_cells`.
 
 ## Usage
 
 ``` r
-make_demo_samples(n_cells = 300, n_labels = 3, n_samples = 24,
-  seed = NULL, boost_motif = TRUE)
+make_demo_samples(
+  n_cells = 10000,
+  n_labels = 3,
+  n_samples = 24,
+  seed = NULL,
+  boost_motif = TRUE
+)
 ```
 
 ## Arguments

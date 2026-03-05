@@ -35,8 +35,8 @@ frame of layers and counts), and `total` (sum of possible motifs).
 ## See also
 
 [`motif_edger`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md),
-[`top_motifs_simple`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_simple.md),
-[`top_motifs_triplet`](https://GeNeHetX.github.io/CellEdgeR/reference/top_motifs_triplet.md)
+[`top_edges`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md),
+[`top_triplets`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
 
 ## Examples
 
@@ -70,9 +70,9 @@ obj <- motif_edger(obj, meta, "~ group", triplet_mode = "merge")
 #> Warning: No residual df: cannot estimate dispersion
 #> edgeR dispersion estimation failed for volume/full model; tests will be empty.
 #> edgeR GLM fit failed for volume/null model; tests will be empty.
-#> Fitting ancova models (per motif)...
+#> Fitting submotif-adjusted models (per motif)...
 #> Warning: No residual df: cannot estimate dispersion
-#> Warning: Ancova dispersion could not be estimated; returning NA results.
+#> Warning: Submotif-adjusted dispersion could not be estimated; returning NA results.
 
 motif_space_size(obj)
 #> $labels

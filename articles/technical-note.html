@@ -85,19 +85,20 @@ offsets.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_cell_graphs.html">build_cell_graphs</a></span><span class="op">(</span><span class="va">samples_list</span>, n_cores <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span>
-<span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span><span class="va">cellgraph</span>, max_edge_len <span class="op">=</span> <span class="fl">50</span>, n_cores <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span>
+<span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span><span class="va">cellgraph</span>, max_edge_len <span class="op">=</span> <span class="fl">50</span>, include_wedge <span class="op">=</span> <span class="cn">TRUE</span>, n_cores <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span>
 <span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/motif_edger.html">motif_edger</a></span><span class="op">(</span></span>
 <span>  <span class="va">cellgraph</span>,</span>
 <span>  sample_df <span class="op">=</span> <span class="va">metadata_df</span>,</span>
 <span>  design_formula <span class="op">=</span> <span class="st">"~ condition"</span>,</span>
-<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"ancova"</span><span class="op">)</span></span>
+<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"submotif_adj"</span><span class="op">)</span>,</span>
+<span>  triplet_mode <span class="op">=</span> <span class="st">"closure"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="../reference/top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/top_edges.html">top_triplets</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"topology"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="methodology-volume-and-hybrid">Methodology (volume and hybrid)<a class="anchor" aria-label="anchor" href="#methodology-volume-and-hybrid"></a>
+<h2 id="methodology-volume-co-occurrence-topology">Methodology (volume, co-occurrence, topology)<a class="anchor" aria-label="anchor" href="#methodology-volume-co-occurrence-topology"></a>
 </h2>
 <p>This section is a technical note aimed at readers who want to
 understand the statistical model and its assumptions.</p>
@@ -155,27 +156,30 @@ degree*(degree-1) for the center label) and leaf volumes.</li>
 <code>design_formula</code> and can include multiple covariates. The
 resulting logFC is interpreted as change in motif rate relative to the
 volume baseline.</p>
-<p>Use <code><a href="../reference/top_motifs_simple.html">top_motifs_simple()</a></code> to extract node/edge results
-from this model.</p>
+<p>Use <code><a href="../reference/top_edges.html">top_edges()</a></code> to extract node/edge results from this
+model.</p>
 </div>
 <div class="section level3">
-<h3 id="hybrid-model">Hybrid model<a class="anchor" aria-label="anchor" href="#hybrid-model"></a>
+<h3 id="co-occurrence-triplets-merged">Co-occurrence triplets (merged)<a class="anchor" aria-label="anchor" href="#co-occurrence-triplets-merged"></a>
 </h3>
-<p>The hybrid strategy applies:</p>
+<p>The co-occurrence strategy applies:</p>
 <ul>
-<li>The volume model for node and edge motifs.</li>
-<li>An ANCOVA-style per-motif model for 3-node motifs (triangles/wedges
-or merged triplets), using volume offsets plus a covariate derived from
-expected edge structure. This adjusts higher-order motifs for
-lower-order (edge) composition while preserving the same baseline
-exposure. In <code>triplet_mode = "closure"</code>, triangles are
-adjusted by total triples (open+closed), while wedges use edge-derived
-covariates.</li>
+<li>Volume offsets for 3-node motifs with
+<code>triplet_mode = "merge"</code> to collapse wedges + triangles into
+unordered triplets.</li>
 </ul>
-<p>Hybrid results can be reconstructed by combining
-<code><a href="../reference/top_motifs_simple.html">top_motifs_simple()</a></code> (volume) with
-<code>top_motifs_triplet(..., strategy = "ancova")</code>. FDR is
-computed separately for node/edge motifs and 3-node motifs.</p>
+<p>Use <code>top_triplets(..., strategy = "cooccurrence")</code> after
+running <code>motif_edger(..., triplet_mode = "merge")</code>.</p>
+</div>
+<div class="section level3">
+<h3 id="topology-triplets-closure">Topology triplets (closure)<a class="anchor" aria-label="anchor" href="#topology-triplets-closure"></a>
+</h3>
+<p>Topology modeling uses the submotif-adjusted strategy with
+<code>triplet_mode = "closure"</code>. Triangles are adjusted by total
+triples (open+closed) and wedges by edge-derived covariates
+(edge-force), while retaining volume offsets as the baseline exposure.
+Use <code>top_triplets(..., strategy = "topology")</code> to extract
+these results.</p>
 </div>
 <div class="section level3">
 <h3 id="assumptions">Assumptions<a class="anchor" aria-label="anchor" href="#assumptions"></a>
@@ -208,8 +212,8 @@ preserved label volumes (degree sums) and total edge count.</li>
 counted per sample.</li>
 <li>Offset: a log expected count used in the GLM to normalize for
 exposure.</li>
-<li>Strategy: <code>volume</code> or <code>ancova</code> modeling choice
-used in motif retrieval.</li>
+<li>Strategy: co-occurrence (<code>volume</code>, merge) or topology
+(submotif-adjusted, closure).</li>
 <li>Motif space: the combinatorial set of label-based motifs; see
 <code><a href="../reference/motif_space_size.html">motif_space_size()</a></code>.</li>
 </ul>
@@ -268,11 +272,12 @@ units as your coordinates.</p>
 <span>  <span class="va">cellgraph</span>,</span>
 <span>  sample_df <span class="op">=</span> <span class="va">sample_df</span>,</span>
 <span>  design_formula <span class="op">=</span> <span class="st">"~ condition + batch"</span>,</span>
-<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"ancova"</span><span class="op">)</span></span>
+<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"submotif_adj"</span><span class="op">)</span>,</span>
+<span>  triplet_mode <span class="op">=</span> <span class="st">"closure"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="../reference/top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/top_edges.html">top_triplets</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"topology"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
 <p>The formula can include multiple covariates, interactions, or
 continuous variables (for example
 <code>~ condition + batch + age</code>).</p>

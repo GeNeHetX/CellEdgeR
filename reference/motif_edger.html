@@ -42,8 +42,8 @@
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">motif_edger</span><span class="op">(</span><span class="va">cellgraph</span>, <span class="va">sample_df</span>, <span class="va">design_formula</span>, verbose <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  triplet_mode <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"separate"</span>, <span class="st">"merge"</span>, <span class="st">"closure"</span><span class="op">)</span>,</span>
-<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"ancova"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<span>  triplet_mode <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"both"</span>, <span class="st">"separate"</span>, <span class="st">"merge"</span>, <span class="st">"closure"</span><span class="op">)</span>,</span>
+<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"submotif_adj"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -62,26 +62,26 @@
 <dd><p>Logical; print progress for edgeR.</p></dd>
 
   <dt id="arg-triplet-mode">triplet_mode<a class="anchor" aria-label="anchor" href="#arg-triplet-mode"></a></dt>
-<dd><p>How to handle 3-node motifs: <code>separate</code> keeps triangle and wedge motifs (default),
-  <code>merge</code> combines wedges+triangles into unordered triplet motifs, and <code>closure</code> models triangles with
+<dd><p>How to handle 3-node motifs: <code>both</code> computes co-occurrence (merge) and topology
+  (closure) in a single call (default). <code>separate</code> keeps triangle and wedge motifs, <code>merge</code>
+  combines wedges+triangles into unordered triplet motifs, and <code>closure</code> models triangles with
   total-triplet adjustment. <code>merge</code> and <code>closure</code> require <code>count_motifs_graphs(..., include_wedge = TRUE)</code>.</p></dd>
 
   <dt id="arg-strategies">strategies<a class="anchor" aria-label="anchor" href="#arg-strategies"></a></dt>
-<dd><p>Character vector of strategies to run; defaults to <code>volume</code> and <code>ancova</code>.</p></dd>
+<dd><p>Character vector of strategies to run; defaults to <code>volume</code> and submotif-adjusted (<code>submotif_adj</code>).</p></dd>
 
 </dl></div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>Two strategies are supported by default:</p><ul><li><p><code>volume</code>: volume offsets (Chung-Lu baseline)</p></li>
-<li><p><code>ancova</code>: volume offsets plus edge-force covariates for 3-node motifs</p></li>
-</ul><p>Use <code><a href="top_motifs_simple.html">top_motifs_simple</a></code> for node/edge motifs and
-<code><a href="top_motifs_triplet.html">top_motifs_triplet</a></code> for 3-node motifs. The hybrid summary in
-<code><a href="top_motifs.html">top_motifs</a></code> combines volume (nodes/edges) and ancova (3-node motifs).</p>
+<li><p><code>submotif_adj</code>: submotif-adjusted model using volume offsets plus lower-order covariates for 3-node motifs</p></li>
+</ul><p>Use <code><a href="top_edges.html">top_edges</a></code> for node/edge motifs and
+<code><a href="top_edges.html">top_triplets</a></code> for 3-node motifs.</p>
     </div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>The input cellgraph augmented with <code>edger</code>, containing:</p><dl><dt><code>strategies</code></dt>
-<dd><p>Named list of strategy results (<code>volume</code>, <code>ancova</code>).</p></dd>
+<dd><p>Named list of strategy results (<code>volume</code>, <code>submotif_adj</code>).</p></dd>
 
   <dt><code>motif_info</code></dt>
 <dd><p>Data frame of motif keys and motif types for joins.</p></dd>
@@ -90,14 +90,13 @@
 <dd><p>Sample metadata used to build the model matrix.</p></dd>
 
   <dt><code>triplet_mode</code></dt>
-<dd><p>Triplet handling mode used for 3-node motifs.</p></dd>
+<dd><p>Triplet handling mode used for 3-node motifs (may be a named list when <code>both</code>).</p></dd>
 
 
 </dl></div>
     <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
-    <div class="dont-index"><p><code><a href="count_motifs_graphs.html">count_motifs_graphs</a></code>, <code><a href="top_motifs.html">top_motifs</a></code>, <code><a href="top_motifs_simple.html">top_motifs_simple</a></code>,
-<code><a href="top_motifs_triplet.html">top_motifs_triplet</a></code></p></div>
+    <div class="dont-index"><p><code><a href="count_motifs_graphs.html">count_motifs_graphs</a></code>, <code><a href="top_edges.html">top_edges</a></code>, <code><a href="top_edges.html">top_triplets</a></code></p></div>
     </div>
 
     <div class="section level2">
@@ -107,12 +106,13 @@
 <span class="r-in"><span>  s2 <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>x <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">2</span>, <span class="fl">0</span><span class="op">)</span>, y <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">0</span>, <span class="fl">2</span><span class="op">)</span>, label <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"B"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">graphs</span> <span class="op">&lt;-</span> <span class="fu"><a href="build_cell_graphs.html">build_cell_graphs</a></span><span class="op">(</span><span class="va">cells</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">motifs</span> <span class="op">&lt;-</span> <span class="fu"><a href="count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span><span class="va">graphs</span>, max_edge_len <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">motifs</span> <span class="op">&lt;-</span> <span class="fu"><a href="count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span><span class="va">graphs</span>, max_edge_len <span class="op">=</span> <span class="fl">3</span>, include_wedge <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Erosion enabled but no boundary masks provided; counting all cells.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting node motifs (cells by label)…</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting edge motifs (unordered label pairs)…</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Counting triangle motifs (unordered label triplets) in C++…</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> Counts ready: |labels|=2, singles=2, pairs=3, triangles=2</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Also collecting wedge (open triplets)…</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Counts ready: |labels|=2, singles=2, pairs=3, triangles=2, wedge=0</span>
 <span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>no non-missing arguments to max; returning -Inf</span>
 <span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>no non-missing arguments to max; returning -Inf</span>
 <span class="r-in"><span><span class="va">sample_df</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>condition <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"ctrl"</span>, <span class="st">"treated"</span><span class="op">)</span>, row.names <span class="op">=</span> <span class="va">motifs</span><span class="op">$</span><span class="va">sample_name</span><span class="op">)</span></span></span>
@@ -120,10 +120,10 @@
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Fitting edgeR (QL) for volume offsets...</span>
 <span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>No residual df: cannot estimate dispersion</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> edgeR dispersion estimation failed for volume/full model; tests will be empty.</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> Fitting ancova models (per motif)...</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Fitting submotif-adjusted models (per motif)...</span>
 <span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>No residual df: cannot estimate dispersion</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Ancova dispersion could not be estimated; returning NA results.</span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="top_motifs_simple.html">top_motifs_simple</a></span><span class="op">(</span><span class="va">res</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Submotif-adjusted dispersion could not be estimated; returning NA results.</span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">res</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>No edgeR tests stored for volume coef: conditiontreated. Returning NA results.</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   motif motif_type logFC PValue FDR model_used</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 1   N_A       node    NA     NA  NA     volume</span>
@@ -131,10 +131,10 @@
 <span class="r-out co"><span class="r-pr">#&gt;</span> 3 E_A_A       edge    NA     NA  NA     volume</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 4 E_A_B       edge    NA     NA  NA     volume</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 5 E_B_B       edge    NA     NA  NA     volume</span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="top_motifs_triplet.html">top_motifs_triplet</a></span><span class="op">(</span><span class="va">res</span>, strategy <span class="op">=</span> <span class="st">"ancova"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="top_edges.html">top_triplets</a></span><span class="op">(</span><span class="va">res</span>, strategy <span class="op">=</span> <span class="st">"topology"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>           motif motif_type logFC PValue FDR model_used</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> T_A_A_B T_A_A_B   triangle    NA     NA  NA     ancova</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> T_A_B_B T_A_B_B   triangle    NA     NA  NA     ancova</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> T_A_A_B T_A_A_B   triangle    NA     NA  NA   topology</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> T_A_B_B T_A_B_B   triangle    NA     NA  NA   topology</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
