@@ -1,0 +1,297 @@
+---
+title: "HochSchulz_2022_Melanoma stability"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+
+repo_candidates <- unique(normalizePath(c(getwd(), file.path(getwd(), "..")), mustWork = FALSE))
+repo_hit <- vapply(repo_candidates, function(path) {
+  desc <- file.path(path, "DESCRIPTION")
+  file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
+}, logical(1))
+root_dir <- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
+use_local <- !is.na(root_dir)
+```
+
+```{r libs}
+if (use_local && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(root_dir)
+} else if (!requireNamespace("CellEdgeR", quietly = TRUE)) {
+  stop("Install CellEdgeR or run this report inside the repo with devtools::load_all().")
+}
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  stop("Install dplyr.")
+}
+if (!requireNamespace("tidyr", quietly = TRUE)) {
+  stop("Install tidyr.")
+}
+
+library(CellEdgeR)
+library(dplyr)
+library(tidyr)
+
+helpers_path <- if (use_local) {
+  file.path(root_dir, "analysis", "hochschulz_2022_melanoma_shared.R")
+} else {
+  "analysis/hochschulz_2022_melanoma_shared.R"
+}
+if (!file.exists(helpers_path)) {
+  stop("Missing helper script at: ", helpers_path)
+}
+source(helpers_path)
+```
+
+```{r cache-load}
+cache_dir <- if (use_local) file.path(root_dir, "analysis", "cache") else tempdir()
+base_cache <- file.path(cache_dir, "hochschulz_base.rds")
+if (!file.exists(base_cache)) {
+  stop("Base cache not found: ", base_cache, ". Run hochschulz_2022_melanoma_base.Rmd first.")
+}
+
+base <- readRDS(base_cache)
+graphs <- base$graphs
+cells_by_sample <- base$cells_by_sample
+edge_cut <- base$edge_cut
+sample_df <- base$sample_df
+layers_base <- base$layers_base
+coef_name <- base$coef_name
+group_col <- base$params$group_col
+include_wedge <- isTRUE(base$params$include_wedge)
+n_cores <- base$params$n_cores
+min_cells_per_image <- base$params$min_cells_per_image
+seed <- base$params$seed
+stab_cache <- file.path(cache_dir, "hochschulz_stability.rds")
+force_run <- FALSE
+skip_compute <- !force_run && file.exists(stab_cache)
+
+if (skip_compute) {
+  stab <- readRDS(stab_cache)
+  sample_summary <- stab$sample_summary
+  sample_pairs <- stab$sample_pairs
+  space_summary <- stab$space_summary
+  space_pairs <- stab$space_pairs
+  random_summary <- stab$random_summary
+  random_pairs <- stab$random_pairs
+}
+```
+
+```{r params}
+set.seed(seed)
+sample_keep_fracs <- c(0.8, 0.6)
+sample_keep_reps <- 5
+spatial_keep_fracs <- c(0.9, 0.7, 0.5)
+random_keep_fracs <- c(0.9, 0.7, 0.5)
+top_n_stability <- 20
+```
+
+```{r sample-downsample}
+if (!skip_compute) {
+  sample_summary <- data.frame()
+  sample_pairs <- data.frame()
+
+  sample_fracs <- sample_keep_fracs[sample_keep_fracs < 1]
+  if (length(sample_fracs)) {
+    sample_grid <- expand.grid(
+      frac = sample_fracs,
+      rep = seq_len(sample_keep_reps),
+      stringsAsFactors = FALSE
+    )
+    run_sample <- function(i) {
+      frac <- sample_grid$frac[i]
+      rep <- sample_grid$rep[i]
+      keep <- sample_by_group(sample_df, group_col, frac, seed = seed + rep + round(frac * 100))
+      sub_graphs <- subset_graphs_by_sample(graphs, keep)
+      sub_counts <- count_motifs_graphs(
+        graph_obj = sub_graphs,
+        max_edge_len = edge_cut,
+        include_wedge = include_wedge,
+        n_cores = n_cores,
+        verbose = FALSE
+      )
+      sub_res <- motif_edger(
+        cellgraph = sub_counts,
+        sample_df = sample_df[keep, , drop = FALSE],
+        design_formula = as.formula(paste0("~ ", group_col)),
+        triplet_mode = "both",
+        strategies = c("volume", "submotif_adj"),
+        verbose = FALSE
+      )
+      sub_layers <- collect_layer_tables(sub_res, coef_name = coef_name)
+      cmp <- compare_layer_sets(layers_base, sub_layers, top_n = top_n_stability)
+      out <- list(summary = data.frame(), pairs = data.frame())
+      if (nrow(cmp$summary)) {
+        cmp$summary$frac <- frac
+        cmp$summary$rep <- rep
+        cmp$summary$n_samples <- length(keep)
+        out$summary <- cmp$summary
+      }
+      if (rep == 1 && nrow(cmp$pairs)) {
+        cmp$pairs$frac <- frac
+        cmp$pairs$rep <- rep
+        out$pairs <- cmp$pairs
+      }
+      out
+    }
+    sample_out <- par_apply(seq_len(nrow(sample_grid)), run_sample, n_cores = n_cores)
+    sample_summary <- bind_rows(lapply(sample_out, safe_pull, "summary"))
+    sample_pairs <- bind_rows(lapply(sample_out, safe_pull, "pairs"))
+  }
+}
+```
+
+```{r spatial-crop}
+if (!skip_compute) {
+  space_summary <- data.frame()
+  space_pairs <- data.frame()
+
+  space_fracs <- spatial_keep_fracs[spatial_keep_fracs < 1]
+  if (length(space_fracs)) {
+    run_space <- function(i) {
+      keep_frac <- space_fracs[i]
+      cells_crop <- crop_cells_by_space(cells_by_sample, keep_frac)
+      cells_crop <- filter_cells_by_min(cells_crop, min_cells_per_image)
+      if (!length(cells_crop)) return(list(summary = data.frame(), pairs = data.frame()))
+
+      sub_sample_df <- sample_df[names(cells_crop), , drop = FALSE]
+      if (length(unique(sub_sample_df[[group_col]])) < 2) {
+        message("Skipping keep_frac = ", keep_frac, ": only one group after filtering.")
+        return(list(summary = data.frame(), pairs = data.frame()))
+      }
+
+      g_crop <- build_cell_graphs(cells_crop, n_cores = n_cores, verbose = FALSE)
+      c_crop <- count_motifs_graphs(
+        graph_obj = g_crop,
+        max_edge_len = edge_cut,
+        include_wedge = include_wedge,
+        n_cores = n_cores,
+        verbose = FALSE
+      )
+      res_crop <- motif_edger(
+        cellgraph = c_crop,
+        sample_df = sub_sample_df,
+        design_formula = as.formula(paste0("~ ", group_col)),
+        triplet_mode = "both",
+        strategies = c("volume", "submotif_adj"),
+        verbose = FALSE
+      )
+      crop_layers <- collect_layer_tables(res_crop, coef_name = coef_name)
+      cmp <- compare_layer_sets(layers_base, crop_layers, top_n = top_n_stability)
+      out <- list(summary = data.frame(), pairs = data.frame())
+      if (nrow(cmp$summary)) {
+        cmp$summary$keep_frac <- keep_frac
+        cmp$summary$n_samples <- nrow(sub_sample_df)
+        out$summary <- cmp$summary
+      }
+      if (nrow(cmp$pairs)) {
+        cmp$pairs$keep_frac <- keep_frac
+        out$pairs <- cmp$pairs
+      }
+      out
+    }
+    space_out <- par_apply(seq_len(length(space_fracs)), run_space, n_cores = n_cores)
+    space_summary <- bind_rows(lapply(space_out, safe_pull, "summary"))
+    space_pairs <- bind_rows(lapply(space_out, safe_pull, "pairs"))
+  }
+}
+```
+
+```{r random-cells}
+if (!skip_compute) {
+  random_summary <- data.frame()
+  random_pairs <- data.frame()
+
+  rand_fracs <- random_keep_fracs[random_keep_fracs < 1]
+  if (length(rand_fracs)) {
+    run_rand <- function(i) {
+      keep_frac <- rand_fracs[i]
+      cells_rand <- random_subsample_cells(cells_by_sample, keep_frac, seed = seed + round(keep_frac * 1000))
+      cells_rand <- filter_cells_by_min(cells_rand, min_cells_per_image)
+      if (!length(cells_rand)) return(list(summary = data.frame(), pairs = data.frame()))
+
+      sub_sample_df <- sample_df[names(cells_rand), , drop = FALSE]
+      if (length(unique(sub_sample_df[[group_col]])) < 2) {
+        message("Skipping keep_frac = ", keep_frac, ": only one group after filtering.")
+        return(list(summary = data.frame(), pairs = data.frame()))
+      }
+
+      g_rand <- build_cell_graphs(cells_rand, n_cores = n_cores, verbose = FALSE)
+      c_rand <- count_motifs_graphs(
+        graph_obj = g_rand,
+        max_edge_len = edge_cut,
+        include_wedge = include_wedge,
+        n_cores = n_cores,
+        verbose = FALSE
+      )
+      res_rand <- motif_edger(
+        cellgraph = c_rand,
+        sample_df = sub_sample_df,
+        design_formula = as.formula(paste0("~ ", group_col)),
+        triplet_mode = "both",
+        strategies = c("volume", "submotif_adj"),
+        verbose = FALSE
+      )
+      rand_layers <- collect_layer_tables(res_rand, coef_name = coef_name)
+      cmp <- compare_layer_sets(layers_base, rand_layers, top_n = top_n_stability)
+      out <- list(summary = data.frame(), pairs = data.frame())
+      if (nrow(cmp$summary)) {
+        cmp$summary$keep_frac <- keep_frac
+        cmp$summary$n_samples <- nrow(sub_sample_df)
+        out$summary <- cmp$summary
+      }
+      if (nrow(cmp$pairs)) {
+        cmp$pairs$keep_frac <- keep_frac
+        out$pairs <- cmp$pairs
+      }
+      out
+    }
+    rand_out <- par_apply(seq_len(length(rand_fracs)), run_rand, n_cores = n_cores)
+    random_summary <- bind_rows(lapply(rand_out, safe_pull, "summary"))
+    random_pairs <- bind_rows(lapply(rand_out, safe_pull, "pairs"))
+  }
+}
+```
+
+```{r cache-save}
+if (!skip_compute) {
+  saveRDS(
+    list(
+      sample_summary = sample_summary,
+      sample_pairs = sample_pairs,
+      space_summary = space_summary,
+      space_pairs = space_pairs,
+      random_summary = random_summary,
+      random_pairs = random_pairs,
+      params = list(
+        sample_keep_fracs = sample_keep_fracs,
+        sample_keep_reps = sample_keep_reps,
+        spatial_keep_fracs = spatial_keep_fracs,
+        random_keep_fracs = random_keep_fracs,
+        top_n_stability = top_n_stability
+      )
+    ),
+    stab_cache
+  )
+  message("Saved stability cache: ", stab_cache)
+} else {
+  message("Using existing stability cache: ", stab_cache)
+}
+```
+
+```{r stability-summary, results='asis'}
+format_layer_min <- function(df) {
+  if (!nrow(df)) return("none")
+  mins <- tapply(df$n, df$layer, function(x) min(x, na.rm = TRUE))
+  paste(names(mins), unname(mins), sep = ": ", collapse = "; ")
+}
+
+cat("Sample downsampling min motif counts per layer: ",
+    format_layer_min(sample_summary), ".\n\n", sep = "")
+cat("Spatial cropping min motif counts per layer: ",
+    format_layer_min(space_summary), ".\n\n", sep = "")
+cat("Random cell downsampling min motif counts per layer: ",
+    format_layer_min(random_summary), ".\n\n", sep = "")
+```

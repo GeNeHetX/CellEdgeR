@@ -20,7 +20,7 @@ A list with \code{labels}, \code{triplet_mode}, \code{include_wedge}, \code{coun
 (a data frame of layers and counts), and \code{total} (sum of possible motifs).
 }
 \seealso{
-\code{\link{motif_edger}}, \code{\link{top_motifs_simple}}, \code{\link{top_motifs_triplet}}
+\code{\link{motif_edger}}, \code{\link{top_edges}}, \code{\link{top_triplets}}
 }
 \examples{
 cells <- list(

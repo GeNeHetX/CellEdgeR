@@ -1,0 +1,4 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/analysis/.venv-graphcompass/bin/python",
+  "jupyter.jupyterServerType": "local"
+}

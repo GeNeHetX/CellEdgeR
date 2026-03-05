@@ -1,0 +1,650 @@
+---
+title: "CellEdgeR validation on HochSchulz_2022_Melanoma"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+
+if(!require("imcdatasets")){
+  BiocManager::install("terra")
+  BiocManager::install("cytomapper")
+  BiocManager::install('imcdatasets')
+}
+
+repo_candidates <- unique(normalizePath(c(getwd(), file.path(getwd(), "..")), mustWork = FALSE))
+repo_hit <- vapply(repo_candidates, function(path) {
+  desc <- file.path(path, "DESCRIPTION")
+  file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
+}, logical(1))
+root_dir <- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
+use_local <- !is.na(root_dir)
+
+```
+
+# Overview
+
+This report validates CellEdgeR on the HochSchulz_2022_Melanoma dataset from the
+`imcdatasets` package, using both co-occurrence and topology strategies. It also
+includes negative-control label shuffles (QQ/histograms of p-values) and
+stability checks (sample downsampling and spatial cropping).
+
+# Parameters
+
+```{r params}
+# Reproducibility
+
+set.seed(1)
+
+# Reproducibility
+seed <- 1
+set.seed(seed)
+
+# Dataset retrieval
+full_dataset <- FALSE  # FALSE loads the 50-image subset used by imcdatasets
+spe_type <- "spe"       # use SpatialExperiment
+
+# Columns to use (override if needed)
+label_col <- "cell_type"
+image_col <- "image_name"
+x_col <- "cell_x"
+y_col <- "cell_y"
+
+# Sample-level grouping (override after inspection)
+# group_col <- "patient_treatment_group_after_surgery"
+# group_col <- "patient_status_at_3months"
+# group_col <- "sample_tissue_type"
+group_col <- NULL
+
+# Filtering / runtime controls
+min_cells_per_image <- 200
+max_cells_per_image <- NULL  # set to integer to downsample per image
+max_images <- NULL           # set to integer to sample images
+
+# Graph / counting
+include_wedge <- TRUE
+edge_len_quantile <- 0.99
+n_cores <- 6
+
+# Parallelism note: mclapply is used when n_cores > 1 on Unix-alikes.
+
+# Negative-control label shuffle (used by permutation script)
+n_perm <- 20
+perm_seed <- 100
+
+# Stability checks (used by stability script)
+sample_keep_fracs <- c(0.8, 0.6)
+sample_keep_reps <- 5
+spatial_keep_fracs <- c(0.9, 0.7, 0.5)
+top_n_stability <- 20
+
+# Cache (used by separate permutation/stability scripts)
+write_cache <- TRUE
+cache_dir <- if (use_local) file.path(root_dir, "analysis", "cache") else tempdir()
+```
+
+# Libraries
+
+```{r libs}
+loaded_dev <- FALSE
+if (use_local && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(root_dir)
+  loaded_dev <- TRUE
+} else if (!requireNamespace("CellEdgeR", quietly = TRUE)) {
+  stop("Install CellEdgeR or run this report inside the repo with devtools::load_all().")
+}
+if (!requireNamespace("imcdatasets", quietly = TRUE)) {
+  stop("Install imcdatasets with BiocManager::install('imcdatasets').")
+}
+if (!requireNamespace("SpatialExperiment", quietly = TRUE)) {
+  stop("Install SpatialExperiment.")
+}
+
+if (!loaded_dev) library(CellEdgeR)
+library(imcdatasets)
+library(SpatialExperiment)
+library(SummarizedExperiment)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+if (!"triplet_mode" %in% names(formals(CellEdgeR::motif_edger))) {
+  stop("This report requires a CellEdgeR version that supports triplet_mode. ",
+       "Install from the repo or run devtools::load_all().")
+}
+```
+
+# Helper functions
+
+```{r helpers}
+helpers_path <- if (use_local) {
+  file.path(root_dir, "analysis", "hochschulz_2022_melanoma_shared.R")
+} else {
+  "analysis/hochschulz_2022_melanoma_shared.R"
+}
+if (!file.exists(helpers_path)) {
+  stop("Missing helper script at: ", helpers_path)
+}
+source(helpers_path)
+```
+
+# Load dataset
+
+```{r data}
+spe <- load_hochschulz(data_type = spe_type, full_dataset = full_dataset)
+
+cd <- as.data.frame(colData(spe))
+
+# Auto-detect group column if not specified
+if (is.null(group_col)) {
+  group_candidates <- c(
+    "patient_treatment_group_after_surgery",
+    "patient_treatment_group_before_surgery",
+    "patient_status_at_3months",
+    "patient_relapse",
+    "sample_tissue_type",
+    "sample_location",
+    "patient_mutation"
+  )
+  group_col <- pick_group_col(cd, group_candidates)
+}
+
+if (is.na(group_col)) {
+  stop("Set group_col explicitly after inspecting colData(spe).")
+}
+```
+
+# Build sample list
+
+```{r build}
+prep <- prepare_cells_by_sample(
+  spe,
+  label_col = label_col,
+  image_col = image_col,
+  x_col = x_col,
+  y_col = y_col,
+  min_cells = min_cells_per_image,
+  max_cells = max_cells_per_image,
+  max_images = max_images
+)
+
+cells_by_sample <- prep$cells_by_sample
+cell_df <- prep$cell_df
+cell_df$image <- as.character(cell_df$image)
+names(cells_by_sample) <- as.character(names(cells_by_sample))
+
+# sample-level metadata aligned to cells_by_sample
+sample_df <- data.frame(sample = names(cells_by_sample), stringsAsFactors = FALSE)
+group_map <- as.data.frame(colData(spe)) %>%
+  select(all_of(c(image_col, group_col))) %>%
+  distinct() %>%
+  group_by(.data[[image_col]]) %>%
+  slice(1) %>%
+  ungroup()
+names(group_map)[names(group_map) == image_col] <- "sample"
+group_map$sample <- as.character(group_map$sample)
+sample_df$sample <- as.character(sample_df$sample)
+sample_df <- sample_df %>% left_join(group_map, by = "sample")
+
+rownames(sample_df) <- sample_df$sample
+
+# ensure group is a factor
+sample_df[[group_col]] <- factor(sample_df[[group_col]])
+
+# drop samples with missing group assignment
+missing_group <- is.na(sample_df[[group_col]])
+if (any(missing_group)) {
+  drop_samples <- rownames(sample_df)[missing_group]
+  message("Dropping samples with missing group: ", paste(drop_samples, collapse = ", "))
+  sample_df <- sample_df[!missing_group, , drop = FALSE]
+  cells_by_sample <- cells_by_sample[rownames(sample_df)]
+  cell_df <- cell_df[cell_df$image %in% rownames(sample_df), , drop = FALSE]
+}
+
+sample_df
+```
+
+# Basic summaries
+
+```{r summaries}
+# cells per image
+cell_counts <- cell_df %>% count(image, name = "n_cells")
+
+# label distribution
+label_counts <- cell_df %>% count(label, name = "n_cells") %>% arrange(desc(n_cells))
+
+p_cells <- ggplot(cell_counts, aes(x = n_cells)) +
+  geom_histogram(bins = 30, fill = "#4477aa", color = "white") +
+  labs(title = "Cells per image", x = "Cells", y = "Images") +
+  theme_minimal()
+
+p_labels <- ggplot(label_counts, aes(x = reorder(label, n_cells), y = n_cells)) +
+  geom_col(fill = "#aa3377") +
+  coord_flip() +
+  labs(title = "Cell-type counts", x = NULL, y = "Cells") +
+  theme_minimal()
+
+p_cells
+p_labels
+```
+
+# Build graphs and count motifs
+
+```{r count}
+graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = TRUE)
+
+# Edge length distribution to pick a pruning threshold
+edge_len <- unlist(lapply(graphs$per_sample_graph, function(ps) ps$edge_len))
+edge_cut <- as.numeric(stats::quantile(edge_len, probs = edge_len_quantile, na.rm = TRUE))
+
+p_edge_len <- ggplot(data.frame(edge_len = edge_len), aes(edge_len)) +
+  geom_density(fill = "#44aa77", alpha = 0.4) +
+  scale_x_log10() +
+  labs(title = "Edge length distribution (log10)", x = "Edge length", y = "Density") +
+  theme_minimal()
+
+p_edge_len
+
+counts <- count_motifs_graphs(
+  graph_obj = graphs,
+  max_edge_len = edge_cut,
+  include_wedge = include_wedge,
+  n_cores = n_cores,
+  verbose = TRUE
+)
+```
+
+# Fit models
+
+```{r models}
+# Use the first non-intercept coefficient by default
+coef_name <- NULL
+
+res <- motif_edger(
+  cellgraph = counts,
+  sample_df = sample_df,
+  design_formula = as.formula(paste0("~ ", group_col)),
+  triplet_mode = "both",
+  strategies = c("volume", "submotif_adj"),
+  verbose = TRUE
+)
+
+edges_all <- top_edges(res, coef = coef_name)
+nodes_tbl <- edges_all[edges_all$motif_type == "node", , drop = FALSE]
+edges_tbl <- edges_all[edges_all$motif_type == "edge", , drop = FALSE]
+triplets_co <- top_triplets(res, strategy = "cooccurrence", coef = coef_name)
+triplets_topo <- top_triplets(res, strategy = "topology", coef = coef_name)
+
+layers_base <- collect_layer_tables(res, coef_name = coef_name)
+```
+
+```{r cache-base}
+if (isTRUE(write_cache)) {
+  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  base_cache <- file.path(cache_dir, "hochschulz_base.rds")
+  base_payload <- list(
+    params = list(
+      seed = seed,
+      full_dataset = full_dataset,
+      spe_type = spe_type,
+      label_col = label_col,
+      image_col = image_col,
+      x_col = x_col,
+      y_col = y_col,
+      group_col = group_col,
+      min_cells_per_image = min_cells_per_image,
+      max_cells_per_image = max_cells_per_image,
+      max_images = max_images,
+      include_wedge = include_wedge,
+      edge_len_quantile = edge_len_quantile,
+      n_cores = n_cores
+    ),
+    graphs = graphs,
+    counts = counts,
+    edge_cut = edge_cut,
+    sample_df = sample_df,
+    cells_by_sample = cells_by_sample,
+    cell_df = cell_df,
+    coef_name = coef_name,
+    res = res,
+    layers_base = layers_base
+  )
+  saveRDS(base_payload, base_cache)
+  message("Saved base cache: ", base_cache)
+}
+```
+
+# Results plots
+
+```{r results-plots}
+plot_volcano(nodes_tbl, "Nodes: volume offsets")
+plot_volcano(edges_tbl, "Edges: volume offsets")
+plot_volcano(triplets_co, "Triplets: co-occurrence")
+plot_volcano(triplets_topo, "Triplets: topology (wedge/triangle)")
+```
+
+Significant motifs (FDR < 0.05):
+- Nodes: `r sum(nodes_tbl$FDR < 0.05, na.rm = TRUE)` of `r nrow(nodes_tbl)`
+- Edges: `r sum(edges_tbl$FDR < 0.05, na.rm = TRUE)` of `r nrow(edges_tbl)`
+- Triplets (co-occurrence): `r sum(triplets_co$FDR < 0.05, na.rm = TRUE)` of `r nrow(triplets_co)`
+- Triplets (topology): `r sum(triplets_topo$FDR < 0.05, na.rm = TRUE)` of `r nrow(triplets_topo)`
+
+# Top motifs
+
+```{r top-motifs}
+head(nodes_tbl, 10)
+head(edges_tbl, 10)
+head(triplets_co, 10)
+head(triplets_topo, 10)
+```
+
+# Visualizing significant motifs
+
+```{r motif-select}
+pick_top <- function(tbl, n = 2) {
+  if (!nrow(tbl)) return(character())
+  if (all(is.na(tbl$FDR))) {
+    tbl <- tbl[order(tbl$PValue, na.last = TRUE), , drop = FALSE]
+  } else {
+    tbl <- tbl[order(tbl$FDR, tbl$PValue, na.last = TRUE), , drop = FALSE]
+  }
+  head(tbl$motif, n)
+}
+
+edge_motifs <- pick_top(edges_tbl, n = 2)
+co_motifs <- pick_top(triplets_co, n = 2)
+topo_motifs <- pick_top(triplets_topo, n = 2)
+
+edge_motifs
+co_motifs
+topo_motifs
+```
+
+```{r motif-boxplots}
+triplet_cache <- build_triplet_cache(counts)
+
+plot_motif_box <- function(motif_key, title) {
+  if (startsWith(motif_key, "TP_")) {
+    if (is.null(triplet_cache)) {
+      stop("Merged triplet cache not available; ensure include_wedge = TRUE.")
+    }
+    if (!motif_key %in% rownames(triplet_cache$norm)) {
+      stop("motif_key not found in merged triplets: ", motif_key)
+    }
+    vals <- as.matrix(triplet_cache$norm)
+    if (!motif_key %in% rownames(vals)) {
+      stop("motif_key not found in merged triplets: ", motif_key)
+    }
+    df <- data.frame(sample = colnames(vals), value = vals[motif_key, ], stringsAsFactors = FALSE)
+  } else {
+    vals <- get_motif_values(counts, motif_key = motif_key, value = "norm")
+    df <- data.frame(sample = rownames(vals), value = vals[[motif_key]], stringsAsFactors = FALSE)
+  }
+  df <- merge(df, sample_df, by.x = "sample", by.y = "row.names", all.x = TRUE)
+  ggplot(df, aes_string(x = group_col, y = "value")) +
+    geom_boxplot(outlier.alpha = 0.3) +
+    geom_jitter(width = 0.15, alpha = 0.5, size = 1) +
+    labs(title = title, x = group_col, y = "Normalized count (volume offset)") +
+    theme_minimal()
+}
+
+for (m in edge_motifs) print(plot_motif_box(m, paste("Edge motif", m)))
+for (m in co_motifs) print(plot_motif_box(m, paste("Triplet (co-occurrence)", m)))
+for (m in topo_motifs) print(plot_motif_box(m, paste("Triplet (topology)", m)))
+```
+
+```{r motif-spatial}
+samples_show <- sample_df %>%
+  group_by(.data[[group_col]]) %>%
+  slice_head(n = 1) %>%
+  pull(sample)
+
+plot_motif_samples <- function(motif_key, title_prefix) {
+  for (s in samples_show) {
+    layer_override <- if (startsWith(motif_key, "TP_")) "triangle" else NULL
+    p <- plot_sample_graph(
+      graphs,
+      sample_name = s,
+      max_edge_len = edge_cut,
+      motif_key = motif_key,
+      motif_layer = layer_override,
+      motif_node_size = 3,
+      dim_node_nonmotif = 0.5,
+      alpha_node_nonmotif = 0.2,
+      alpha_edge_nonmotif = 0.2
+    )
+    print(p + ggtitle(paste(title_prefix, motif_key, "sample:", s)))
+  }
+}
+
+for (m in edge_motifs) plot_motif_samples(m, "Edge")
+for (m in co_motifs) plot_motif_samples(m, "Triplet co-occurrence")
+for (m in topo_motifs) plot_motif_samples(m, "Triplet topology")
+```
+
+# External analyses (run separately)
+
+Long-running analyses are split into standalone scripts that read the base cache and
+save their own results. The base cache is written by this Rmd (or via the helper
+script below).
+
+- `analysis/hochschulz_2022_melanoma_base.Rmd` (builds `analysis/cache/hochschulz_base.rds`)
+- `analysis/hochschulz_2022_melanoma_permutation.Rmd`
+- `analysis/hochschulz_2022_melanoma_stability.Rmd`
+
+If the result caches exist, the plots below will be rendered. Otherwise, run the
+scripts first.
+
+```{r external-results}
+perm_cache <- file.path(cache_dir, "hochschulz_perm.rds")
+if (file.exists(perm_cache)) {
+  perm <- readRDS(perm_cache)
+  perm_pvals <- perm$perm_pvals
+  if (nrow(perm_pvals)) {
+    qq_df <- bind_rows(lapply(split(perm_pvals, perm_pvals$layer), function(df) {
+      make_qq_df(df$PValue, unique(df$layer))
+    }))
+    p_qq <- ggplot(qq_df, aes(x = exp, y = obs)) +
+      geom_point(alpha = 0.4, size = 0.6) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      facet_wrap(~ layer, scales = "free") +
+      labs(title = "Label-shuffle QQ plots (null p-value calibration)",
+           x = "Expected -log10(p)", y = "Observed -log10(p)") +
+      theme_minimal()
+    p_qq
+
+    p_hist <- ggplot(perm_pvals, aes(x = PValue)) +
+      geom_histogram(bins = 40, fill = "#4477aa", color = "white") +
+      facet_wrap(~ layer, scales = "free_y") +
+      labs(title = "Label-shuffle p-value histograms",
+           x = "P-value", y = "Count") +
+      theme_minimal()
+    p_hist
+
+    perm_summary <- perm_pvals %>%
+      group_by(layer) %>%
+      summarise(
+        n = n(),
+        prop_p05 = mean(PValue < 0.05, na.rm = TRUE),
+        .groups = "drop"
+      )
+    perm_summary
+  }
+} else {
+  message("Permutation cache not found: ", perm_cache)
+}
+
+stability_cache <- file.path(cache_dir, "hochschulz_stability.rds")
+if (file.exists(stability_cache)) {
+  stab <- readRDS(stability_cache)
+  sample_summary <- stab$sample_summary
+  sample_pairs <- stab$sample_pairs
+  space_summary <- stab$space_summary
+  space_pairs <- stab$space_pairs
+  random_summary <- stab$random_summary
+  random_pairs <- stab$random_pairs
+
+  if (!is.null(sample_summary) && nrow(sample_summary)) {
+    cor_long <- sample_summary %>%
+      pivot_longer(cols = c(cor_logFC, cor_logP), names_to = "metric", values_to = "value") %>%
+      mutate(metric = recode(metric, cor_logFC = "logFC", cor_logP = "-log10P"))
+
+    p_sample_cor <- ggplot(cor_long, aes(x = factor(frac), y = value)) +
+      geom_boxplot(outlier.alpha = 0.3) +
+      facet_grid(metric ~ layer) +
+      labs(title = "Sample downsampling: correlation to baseline",
+           x = "Fraction of samples kept (stratified by group)", y = "Correlation") +
+      theme_minimal()
+
+    p_sample_top <- ggplot(sample_summary, aes(x = factor(frac), y = top_jaccard)) +
+      geom_boxplot(outlier.alpha = 0.3) +
+      facet_wrap(~ layer) +
+      labs(title = paste0("Sample downsampling: top-", top_n_stability, " motif overlap"),
+           x = "Fraction of samples kept", y = "Jaccard overlap") +
+      theme_minimal()
+
+    p_sample_cor
+    p_sample_top
+  }
+
+  if (!is.null(sample_pairs) && nrow(sample_pairs)) {
+    min_frac <- min(sample_pairs$frac, na.rm = TRUE)
+    pair_plot <- sample_pairs %>% filter(frac == min_frac)
+    pair_long <- bind_rows(
+      pair_plot %>% transmute(layer, frac, metric = "logFC", base = logFC_base, alt = logFC_alt),
+      pair_plot %>% transmute(layer, frac, metric = "-log10P", base = logP_base, alt = logP_alt)
+    )
+    p_sample_scatter <- ggplot(pair_long, aes(x = base, y = alt)) +
+      geom_point(alpha = 0.3, size = 0.6) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      facet_grid(metric ~ layer, scales = "free") +
+      labs(title = paste0("Sample downsampling scatter (keep ", min_frac, ")"),
+           x = "Baseline", y = "Downsampled") +
+      theme_minimal()
+    p_sample_scatter
+  }
+
+  if (!is.null(space_summary) && nrow(space_summary)) {
+    cor_long <- space_summary %>%
+      pivot_longer(cols = c(cor_logFC, cor_logP), names_to = "metric", values_to = "value") %>%
+      mutate(metric = recode(metric, cor_logFC = "logFC", cor_logP = "-log10P"))
+
+    p_space_cor <- ggplot(cor_long, aes(x = keep_frac, y = value)) +
+      geom_point() +
+      geom_line() +
+      facet_grid(metric ~ layer) +
+      labs(title = "Spatial cropping: correlation to baseline",
+           x = "Fraction of spatial area kept", y = "Correlation") +
+      theme_minimal()
+
+    p_space_top <- ggplot(space_summary, aes(x = keep_frac, y = top_jaccard)) +
+      geom_point() +
+      geom_line() +
+      facet_wrap(~ layer) +
+      labs(title = paste0("Spatial cropping: top-", top_n_stability, " motif overlap"),
+           x = "Fraction of spatial area kept", y = "Jaccard overlap") +
+      theme_minimal()
+
+    p_space_cor
+    p_space_top
+  }
+
+  if (!is.null(space_pairs) && nrow(space_pairs)) {
+    min_frac <- min(space_pairs$keep_frac, na.rm = TRUE)
+    pair_plot <- space_pairs %>% filter(keep_frac == min_frac)
+    pair_long <- bind_rows(
+      pair_plot %>% transmute(layer, keep_frac, metric = "logFC", base = logFC_base, alt = logFC_alt),
+      pair_plot %>% transmute(layer, keep_frac, metric = "-log10P", base = logP_base, alt = logP_alt)
+    )
+    p_space_scatter <- ggplot(pair_long, aes(x = base, y = alt)) +
+      geom_point(alpha = 0.3, size = 0.6) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      facet_grid(metric ~ layer, scales = "free") +
+      labs(title = paste0("Spatial cropping scatter (keep ", min_frac, ")"),
+           x = "Baseline", y = "Cropped") +
+      theme_minimal()
+    p_space_scatter
+  }
+
+  if (!is.null(random_summary) && nrow(random_summary)) {
+    cor_long <- random_summary %>%
+      pivot_longer(cols = c(cor_logFC, cor_logP), names_to = "metric", values_to = "value") %>%
+      mutate(metric = recode(metric, cor_logFC = "logFC", cor_logP = "-log10P"))
+
+    p_rand_cor <- ggplot(cor_long, aes(x = keep_frac, y = value)) +
+      geom_point() +
+      geom_line() +
+      facet_grid(metric ~ layer) +
+      labs(title = "Random cell downsampling: correlation to baseline",
+           x = "Fraction of cells kept", y = "Correlation") +
+      theme_minimal()
+
+    p_rand_top <- ggplot(random_summary, aes(x = keep_frac, y = top_jaccard)) +
+      geom_point() +
+      geom_line() +
+      facet_wrap(~ layer) +
+      labs(title = paste0("Random cell downsampling: top-", top_n_stability, " motif overlap"),
+           x = "Fraction of cells kept", y = "Jaccard overlap") +
+      theme_minimal()
+
+    p_rand_cor
+    p_rand_top
+  }
+
+  if (!is.null(random_pairs) && nrow(random_pairs)) {
+    min_frac <- min(random_pairs$keep_frac, na.rm = TRUE)
+    pair_plot <- random_pairs %>% filter(keep_frac == min_frac)
+    pair_long <- bind_rows(
+      pair_plot %>% transmute(layer, keep_frac, metric = "logFC", base = logFC_base, alt = logFC_alt),
+      pair_plot %>% transmute(layer, keep_frac, metric = "-log10P", base = logP_base, alt = logP_alt)
+    )
+    p_rand_scatter <- ggplot(pair_long, aes(x = base, y = alt)) +
+      geom_point(alpha = 0.3, size = 0.6) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      facet_grid(metric ~ layer, scales = "free") +
+      labs(title = paste0("Random cell downsampling scatter (keep ", min_frac, ")"),
+           x = "Baseline", y = "Downsampled") +
+      theme_minimal()
+    p_rand_scatter
+  }
+} else {
+  message("Stability cache not found: ", stability_cache)
+}
+```
+
+# External analyses summary
+
+```{r external-summary, results='asis'}
+perm_pvals <- get0("perm_pvals", ifnotfound = data.frame())
+sample_summary <- get0("sample_summary", ifnotfound = data.frame())
+space_summary <- get0("space_summary", ifnotfound = data.frame())
+random_summary <- get0("random_summary", ifnotfound = data.frame())
+
+format_layer_min <- function(df) {
+  if (!nrow(df)) return("none")
+  mins <- tapply(df$n, df$layer, function(x) min(x, na.rm = TRUE))
+  paste(names(mins), unname(mins), sep = ": ", collapse = "; ")
+}
+
+cat("Permutation p-values: total rows = ",
+    if (nrow(perm_pvals)) nrow(perm_pvals) else 0,
+    "; layers = ",
+    if (nrow(perm_pvals)) length(unique(perm_pvals$layer)) else 0,
+    ".\n\n", sep = "")
+cat("Sample downsampling min motif counts per layer: ",
+    format_layer_min(sample_summary), ".\n\n", sep = "")
+cat("Spatial cropping min motif counts per layer: ",
+    format_layer_min(space_summary), ".\n\n", sep = "")
+cat("Random cell downsampling min motif counts per layer: ",
+    format_layer_min(random_summary), ".\n\n", sep = "")
+```
+
+
+# Notes
+
+- If runtime is too long, set `max_cells_per_image` or set `max_images`.
+- Ensure `group_col` reflects a meaningful biological contrast with at least two groups.
+- `motif_edger()` computes co-occurrence and topology together by default; use `top_triplets(strategy = "cooccurrence")` or
+  `top_triplets(strategy = "topology")` to retrieve the desired layer.

@@ -395,7 +395,7 @@ build_cell_graphs <- function(
 #' \item{exposure}{Totals used in offsets: `cells`, `edges`, `triangles`, `volumes` per label×sample,
 #'   `center_pairs` (sum of degree*(degree-1) per label×sample), plus `wedge` and `triples` (centered open+closed triples)
 #'   when requested.}
-#' \item{offsets}{Offset sets (e.g., `volume`, `hier_null`), each containing log-expected matrices per layer.
+#' \item{offsets}{Offset sets (e.g., `volume`, `edge_adjusted`), each containing log-expected matrices per layer.
 #'   Node offsets are adjusted with TMM factors; other layers use the structural offsets only.}
 #' \item{norm_counts}{Normalized counts per offset set (counts / exp(offset)).}
 #' \item{relative_counts}{edgeR intercept-only log2 residuals per offset set.}
@@ -440,10 +440,10 @@ count_motifs_graphs <- function(
   )
   # Offsets: volume and edge-derived null (intercept-based)
   offsets_volume <- compute_offsets_volume(counts_obj, offset_pseudo)
-  hier_null <- compute_offsets_hierarchical(counts_obj, offset_pseudo, mode = "null")
+  edge_adjusted <- compute_offsets_hierarchical(counts_obj, offset_pseudo, mode = "null")
   offset_results <- list(
     volume = offsets_volume,
-    hier_null = hier_null
+    edge_adjusted = edge_adjusted
   )
   offset_results <- lapply(offset_results, function(res) {
     list(
@@ -854,8 +854,8 @@ merge_motif_objs <- function(motif_obj_a, motif_obj_b, verbose = TRUE) {
 
   if (verbose) message("Recomputing offsets for merged object...")
   offsets_volume <- compute_offsets_volume(merged, offset_pseudo)
-  hier_null <- compute_offsets_hierarchical(merged, offset_pseudo, mode = "null")
-  offset_results <- list(volume = offsets_volume, hier_null = hier_null)
+  edge_adjusted <- compute_offsets_hierarchical(merged, offset_pseudo, mode = "null")
+  offset_results <- list(volume = offsets_volume, edge_adjusted = edge_adjusted)
   offset_results <- lapply(offset_results, function(res) {
     list(
       offsets = res$offsets,
@@ -1887,39 +1887,45 @@ sum_wedges_to_triangles <- function(wedge_mat, tri_keys, samples) {
 #' Differential motif testing with edgeR (store fits/tests)
 #'
 #' Fit edgeR QL models across stacked motifs and store the full and intercept-only (null)
-#' fits/tests inside the motif object. Use [top_motifs_simple()] and [top_motifs_triplet()]
-#' to extract tables (or [top_motifs()] for the legacy hybrid summary).
+#' fits/tests inside the motif object. Use [top_edges()] for node/edge motifs,
+#' [top_triplets()] for 3-node motifs (co-occurrence or topology).
 #'
 #' @param cellgraph Output list from [count_motifs_graphs()].
 #' @param sample_df Data frame with sample metadata; rownames must match `cellgraph$sample_name`.
 #' @param design_formula Formula string passed to `model.matrix`, e.g. `~ condition + batch`.
 #' @param verbose Logical; print progress.
-#' @param triplet_mode How to handle 3-node motifs: `separate` keeps triangle and wedge motifs (default),
-#'   `merge` combines wedges+triangles into unordered triplet motifs, and `closure` models wedges separately
+#' @param triplet_mode How to handle 3-node motifs: `both` computes co-occurrence (merge) and topology
+#'   (closure) results in a single call (default). `separate` keeps triangle and wedge motifs, `merge`
+#'   combines wedges+triangles into unordered triplet motifs, and `closure` models wedges separately
 #'   while testing triangle closure using total triples (open+closed) as a covariate. `merge` and `closure`
 #'   require `count_motifs_graphs(..., include_wedge = TRUE)`.
-#' @param strategies Character vector of strategies to run; defaults to `volume` and `ancova`.
+#' @param strategies Character vector of strategies to run; defaults to `volume` and submotif-adjusted (`submotif_adj`).
 #'   Strategies are stored under `cellgraph$edger$strategies`.
 #'
 #' @return The input `cellgraph` augmented with `edger`, containing:
 #' \describe{
-#' \item{strategies}{Named list of strategy results (`volume`, `ancova`).}
+#' \item{strategies}{Named list of strategy results (`volume`, submotif-adjusted `submotif_adj`).}
 #' \item{motif_info}{Data frame with `motif` and `motif_type` for joins.}
 #' \item{sample_df}{Sample metadata used to build the design.}
-#' \item{triplet_mode}{Triplet handling mode used for 3-node motifs.}
+#' \item{triplet_mode}{Triplet handling mode used for 3-node motifs (may be a named list when `both`).}
 #' }
-#' Use [top_motifs_simple()] for node/edge motifs and [top_motifs_triplet()] for 3-node motifs.
+#' Use [top_edges()] for node/edge motifs and [top_triplets()] for 3-node motifs.
 #' @export
 motif_edger <- function(
   cellgraph,
   sample_df,
   design_formula,
   verbose = TRUE,
-  triplet_mode = c("separate", "merge", "closure"),
-  strategies = c("volume", "ancova")
+  triplet_mode = c("both", "separate", "merge", "closure"),
+  strategies = c("volume", "submotif_adj")
 ) {
   #"edgeR", "Matrix"
   validate_motif_obj(cellgraph, require_offsets = TRUE)
+  # Ensure sparse-matrix S4 methods are available in non-interactive runs.
+  # Without Matrix loaded, nrow()/dim() on dgCMatrix can return non-scalar values.
+  if (!"Matrix" %in% loadedNamespaces()) {
+    requireNamespace("Matrix")
+  }
   samples <- cellgraph$sample_name
   if (is.null(rownames(sample_df))) stop("sample_df must have rownames = sample names")
   missing_rows <- setdiff(samples, rownames(sample_df))
@@ -1928,7 +1934,7 @@ motif_edger <- function(
   }
   sample_df <- as.data.frame(sample_df[samples, , drop = FALSE])
   sample_df[] <- lapply(sample_df, function(col) if (is.character(col)) factor(col) else col)
-  triplet_mode <- match.arg(triplet_mode)
+  triplet_mode <- match.arg(triplet_mode, c("both", "separate", "merge", "closure"))
 
   formula_obj <- stats::as.formula(design_formula)
   used_vars <- all.vars(formula_obj)
@@ -1957,8 +1963,63 @@ motif_edger <- function(
     offset_pseudo <- 1
   }
   strategies <- unique(as.character(strategies))
-  strategies <- intersect(strategies, c("volume", "ancova"))
-  if (!length(strategies)) stop("strategies must include at least one of: volume, ancova.")
+  strategies <- intersect(strategies, c("volume", "submotif_adj"))
+  if (!length(strategies)) stop("strategies must include at least one of: volume, submotif_adj.")
+
+  if (identical(triplet_mode, "both")) {
+    run_volume <- "volume" %in% strategies
+    run_submotif <- "submotif_adj" %in% strategies
+    if (!run_volume && !run_submotif) {
+      stop("triplet_mode = \"both\" requires at least one strategy: volume or submotif_adj.")
+    }
+    out <- cellgraph
+    strategies_out <- list()
+    motif_names <- character()
+    triplet_modes_out <- list()
+    if (run_volume) {
+      res_merge <- motif_edger(
+        cellgraph = cellgraph,
+        sample_df = sample_df,
+        design_formula = design_formula,
+        verbose = verbose,
+        triplet_mode = "merge",
+        strategies = "volume"
+      )
+      strategies_out$volume <- res_merge$edger$strategies$volume
+      triplet_modes_out$volume <- "merge"
+      if (!is.null(res_merge$edger$motif_info)) {
+        motif_names <- c(motif_names, res_merge$edger$motif_info$motif)
+      }
+    }
+    if (run_submotif) {
+      res_closure <- motif_edger(
+        cellgraph = cellgraph,
+        sample_df = sample_df,
+        design_formula = design_formula,
+        verbose = verbose,
+        triplet_mode = "closure",
+        strategies = "submotif_adj"
+      )
+      strategies_out$submotif_adj <- res_closure$edger$strategies$submotif_adj
+      triplet_modes_out$submotif_adj <- "closure"
+      if (!is.null(res_closure$edger$motif_info)) {
+        motif_names <- c(motif_names, res_closure$edger$motif_info$motif)
+      }
+    }
+    motif_names <- unique(motif_names)
+    motif_info <- data.frame(
+      motif = motif_names,
+      motif_type = infer_motif_type(motif_names),
+      stringsAsFactors = FALSE
+    )
+    out$edger <- list(
+      strategies = strategies_out,
+      motif_info = motif_info,
+      sample_df = sample_df,
+      triplet_mode = triplet_modes_out
+    )
+    return(out)
+  }
 
   align_counts <- function(mat, layer) {
     if (is.null(mat) || nrow(mat) == 0) return(NULL)
@@ -2129,11 +2190,11 @@ motif_edger <- function(
   }
 
   if (is.null(Y_all) || !nrow(Y_all)) {
-    empty_strategy <- list(type = "edgeR", offset_mode = NA_character_,
+    empty_strategy <- list(type = "edgeR", offset_mode = NA_character_, triplet_mode = triplet_mode,
       full = list(design = design, design_formula = design_formula, dge = NULL, fit = NULL, tests = list()),
       null = list(design = design_null, design_formula = "~ 1", dge = NULL, fit = NULL, tests = list())
     )
-    ancova_coef <- if (identical(triplet_mode, "closure")) {
+    submotif_adj_coef <- if (identical(triplet_mode, "closure")) {
       c(colnames(design), "triplet_force", "edge_force")
     } else {
       c(colnames(design), "edge_force")
@@ -2141,8 +2202,9 @@ motif_edger <- function(
     cellgraph$edger <- list(
       strategies = list(
         volume = empty_strategy,
-        ancova = list(type = "ancova", offset_mode = "volume", design = design, design_formula = design_formula,
-          logFC = NULL, PValue = NULL, coef_names = ancova_coef)
+        submotif_adj = list(type = "submotif_adj", offset_mode = "volume", triplet_mode = triplet_mode,
+          design = design, design_formula = design_formula,
+          logFC = NULL, PValue = NULL, coef_names = submotif_adj_coef)
       ),
       motif_info = motif_info,
       sample_df = sample_df,
@@ -2232,6 +2294,7 @@ motif_edger <- function(
     edger_strategies$volume <- list(
       type = "edgeR",
       offset_mode = "volume",
+      triplet_mode = triplet_mode,
       design = design,
       design_formula = design_formula,
       full = full_res,
@@ -2239,7 +2302,7 @@ motif_edger <- function(
     )
   }
 
-  if ("ancova" %in% strategies) {
+  if ("submotif_adj" %in% strategies) {
     # Ensure vol_offsets is available and corrected
     if (!exists("vol_offsets")) {
       vol_offsets <- build_offsets_all("volume")
@@ -2250,8 +2313,8 @@ motif_edger <- function(
 
     covariate_layers <- list()
     if (identical(triplet_mode, "closure")) {
-      hier_offsets <- build_offsets_all("hier_null")
-      if (is.null(hier_offsets)) stop("Edge-derived offsets (hier_null) are missing; rerun count_motifs_graphs().")
+      hier_offsets <- build_offsets_all("edge_adjusted")
+      if (is.null(hier_offsets)) stop("Edge-derived offsets (edge_adjusted) are missing; rerun count_motifs_graphs().")
       edge_force <- matrix(0, nrow = nrow(Y_all), ncol = length(samples),
         dimnames = list(rownames(Y_all), samples))
       wedge_rows <- which(motif_type == "wedge")
@@ -2271,8 +2334,8 @@ motif_edger <- function(
       covariate_layers$triplet_force <- triplet_force
       covariate_layers <- covariate_layers[c("triplet_force", "edge_force")]
     } else {
-      hier_offsets <- build_offsets_all("hier_null")
-      if (is.null(hier_offsets)) stop("Edge-derived offsets (hier_null) are missing; rerun count_motifs_graphs().")
+      hier_offsets <- build_offsets_all("edge_adjusted")
+      if (is.null(hier_offsets)) stop("Edge-derived offsets (edge_adjusted) are missing; rerun count_motifs_graphs().")
       covariate_all <- as.matrix(hier_offsets)
       drop_idx <- motif_type %in% c("node", "edge")
       if (any(drop_idx)) covariate_all[drop_idx, ] <- 0
@@ -2280,7 +2343,7 @@ motif_edger <- function(
     }
     covariate_names <- names(covariate_layers)
 
-    if (verbose) message("Fitting ancova models (per motif)...")
+    if (verbose) message("Fitting submotif-adjusted models (per motif)...")
 
     dispersion_vec <- NULL
     # Try to borrow dispersion from the Volume model (most stable)
@@ -2310,7 +2373,7 @@ motif_edger <- function(
       }
     }
     if (is.null(dispersion_vec)) {
-      warning("Ancova dispersion could not be estimated; returning NA results.")
+      warning("Submotif-adjusted dispersion could not be estimated; returning NA results.")
     }
 
     coef_names <- c(colnames(design), covariate_names)
@@ -2353,9 +2416,10 @@ motif_edger <- function(
       }
     }
 
-    edger_strategies$ancova <- list(
-      type = "ancova",
+    edger_strategies$submotif_adj <- list(
+      type = "submotif_adj",
       offset_mode = "volume",
+      triplet_mode = triplet_mode,
       design = design,
       design_formula = design_formula,
       logFC = logFC_mat,
@@ -2372,26 +2436,6 @@ motif_edger <- function(
   )
   cellgraph
 }
-#' Extract top motifs from stored strategies
-#'
-#' Pull a ranked data frame of motifs using results stored by [motif_edger()].
-#' For the recommended interface, use [top_motifs_simple()] (nodes/edges) and
-#' [top_motifs_triplet()] (3-node motifs) instead of this legacy helper.
-#'
-#' @param cellgraph A `cellEdgeR_obj` with `edger` results.
-#' @param strategy Which strategy to use: `hybrid`, `ancova`, or `volume`
-#'   (defaults to `hybrid`; hybrid applies volume to node/edge motifs and ancova to 3-node motifs).
-#' @param coef Coefficient name or index; defaults to the first non-intercept coefficient,
-#'   or the intercept when only an intercept is present.
-#' @param model Which stored model to use for edgeR strategies: `full` or `null`.
-#' @param n Number of motifs to return; defaults to all.
-#' @param fdr_method Multiple testing correction method for `p.adjust` (default `BH`).
-#' @param append_strategies Optional vector of strategies to append raw PValues/logFC for.
-#'   Use `TRUE` to append all other strategies.
-#' @return A data frame with columns: motif, motif_type, logFC, PValue, FDR, model_used.
-#'   For `hybrid`, FDR is computed separately for node/edge motifs and 3-node motifs.
-#'   Additional `logFC_<strategy>` and `PValue_<strategy>` columns are added when requested.
-#' @export
 infer_motif_type <- function(motifs) {
   out <- rep(NA_character_, length(motifs))
   out[startsWith(motifs, "N_")] <- "node"
@@ -2473,12 +2517,12 @@ get_strategy_table <- function(cellgraph, strategy_name, coef = NULL, model = c(
         stringsAsFactors = FALSE
       )
     }
-  } else if (identical(strat$type, "ancova")) {
+  } else if (identical(strat$type, "submotif_adj")) {
     coef_names <- strat$coef_names
     design_mat <- strat$design
     coef_name <- resolve_coef_name(design_mat, coef, coef_names)
     if (is.null(strat$logFC) || is.null(strat$PValue)) {
-      warning("Ancova results missing for strategy: ", strategy_name, ". Returning NA results.")
+      warning("Submotif-adjusted results missing for strategy: ", strategy_name, ". Returning NA results.")
       out <- data.frame(
         motif = motif_info$motif,
         logFC = NA_real_,
@@ -2486,7 +2530,7 @@ get_strategy_table <- function(cellgraph, strategy_name, coef = NULL, model = c(
         stringsAsFactors = FALSE
       )
     } else if (!coef_name %in% colnames(strat$logFC)) {
-      stop("coef name not found in ancova results.")
+      stop("coef name not found in submotif-adjusted results.")
     } else {
       out <- data.frame(
         motif = rownames(strat$logFC),
@@ -2506,19 +2550,25 @@ get_strategy_table <- function(cellgraph, strategy_name, coef = NULL, model = c(
   out
 }
 
-#' Extract top simple motifs (nodes and edges)
+#' Top motif results
 #'
-#' Return volume-based differential results for node and edge motifs only.
-#' For 3-node motifs, use [top_motifs_triplet()].
+#' Convenience helpers for retrieving ranked motif results from `motif_edger()`.
+#' - [top_edges()] returns node/edge motifs (volume offsets).
+#' - [top_triplets()] returns 3-node motifs (co-occurrence or topology).
 #'
 #' @param cellgraph A `cellEdgeR_obj` with `edger` results.
 #' @param coef Coefficient name or index; defaults to the first non-intercept coefficient.
 #' @param model Which stored model to use for edgeR strategies: `full` or `null`.
+#'   Ignored when `strategy = "topology"`.
+#' @param strategy Triplet strategy: `cooccurrence` (volume offsets, merged triplets) or
+#'   `topology` (submotif-adjusted, closure mode).
 #' @param n Number of motifs to return; defaults to all.
 #' @param fdr_method Multiple testing correction method for `p.adjust` (default `BH`).
 #' @return A data frame with columns: motif, motif_type, logFC, PValue, FDR, model_used.
+#' @name top_edges
+#' @aliases top_triplets
 #' @export
-top_motifs_simple <- function(
+top_edges <- function(
   cellgraph,
   coef = NULL,
   model = c("full", "null"),
@@ -2551,46 +2601,50 @@ top_motifs_simple <- function(
   tbl
 }
 
-#' Extract top 3-node motifs (triangles, wedges, or merged triplets)
-#'
-#' Pull differential results for 3-node motifs only, using either `volume` or `ancova`
-#' strategies. When `triplet_mode = "merge"`, results are returned for unordered
-#' triplets. Otherwise, triangles and wedges are returned separately (when available).
-#'
-#' @param cellgraph A `cellEdgeR_obj` with `edger` results.
-#' @param strategy Which strategy to use: `volume` or `ancova`.
-#' @param coef Coefficient name or index; defaults to the first non-intercept coefficient.
-#' @param model Which stored model to use for edgeR strategies: `full` or `null`.
-#' @param n Number of motifs to return; defaults to all.
-#' @param fdr_method Multiple testing correction method for `p.adjust` (default `BH`).
-#' @param triplet_mode Triplet handling mode (`separate`, `merge`, or `closure`). Defaults
-#'   to the mode stored in `cellgraph$edger$triplet_mode`.
-#' @return A data frame with columns: motif, motif_type, logFC, PValue, FDR, model_used.
+#' @rdname top_edges
 #' @export
-top_motifs_triplet <- function(
+top_triplets <- function(
   cellgraph,
-  strategy = c("ancova", "volume"),
+  strategy = c("cooccurrence", "topology"),
   coef = NULL,
   model = c("full", "null"),
   n = Inf,
-  fdr_method = "BH",
-  triplet_mode = NULL
+  fdr_method = "BH"
 ) {
   strategy <- match.arg(strategy)
-  model <- match.arg(model)
   edger <- cellgraph$edger
-  if (is.null(triplet_mode)) {
-    triplet_mode <- if (!is.null(edger$triplet_mode)) edger$triplet_mode else "separate"
+  if (is.null(edger) || !is.list(edger)) {
+    stop("cellgraph$edger is missing; run motif_edger() first.")
   }
-  triplet_mode <- match.arg(triplet_mode, c("separate", "merge", "closure"))
-  if (!is.null(edger$triplet_mode) && !identical(edger$triplet_mode, triplet_mode)) {
-    stop("triplet_mode does not match motif_edger() results (stored: ", edger$triplet_mode, ").")
+  get_mode_for <- function(edger, strat_name) {
+    strat <- edger$strategies[[strat_name]]
+    if (!is.null(strat$triplet_mode)) return(strat$triplet_mode)
+    if (is.list(edger$triplet_mode)) return(edger$triplet_mode[[strat_name]])
+    edger$triplet_mode
   }
-  tbl <- get_strategy_table(cellgraph, strategy_name = strategy, coef = coef, model = model)
-  if (identical(triplet_mode, "merge")) {
+  if (identical(strategy, "cooccurrence")) {
+    model <- match.arg(model)
+    if (!"volume" %in% names(edger$strategies)) {
+      stop("top_triplets(strategy = \"cooccurrence\") requires volume results; run motif_edger(strategies = \"volume\").")
+    }
+    mode <- get_mode_for(edger, "volume")
+    if (!is.null(mode) && !identical(mode, "merge")) {
+      stop("top_triplets(strategy = \"cooccurrence\") requires volume results from triplet_mode = \"merge\".")
+    }
+    tbl <- get_strategy_table(cellgraph, strategy_name = "volume", coef = coef, model = model)
     tbl <- tbl[tbl$motif_type %in% "triplet", , drop = FALSE]
+    model_used <- "cooccurrence"
   } else {
+    if (!"submotif_adj" %in% names(edger$strategies)) {
+      stop("top_triplets(strategy = \"topology\") requires submotif_adj results; run motif_edger(strategies = \"submotif_adj\").")
+    }
+    mode <- get_mode_for(edger, "submotif_adj")
+    if (!is.null(mode) && !identical(mode, "closure")) {
+      stop("top_triplets(strategy = \"topology\") requires submotif_adj results from triplet_mode = \"closure\".")
+    }
+    tbl <- get_strategy_table(cellgraph, strategy_name = "submotif_adj", coef = coef, model = "full")
     tbl <- tbl[tbl$motif_type %in% c("triangle", "wedge"), , drop = FALSE]
+    model_used <- "topology"
   }
   if (!nrow(tbl)) {
     return(data.frame(
@@ -2604,7 +2658,7 @@ top_motifs_triplet <- function(
     ))
   }
   tbl$FDR <- stats::p.adjust(tbl$PValue, method = fdr_method)
-  tbl$model_used <- strategy
+  tbl$model_used <- model_used
   tbl <- tbl[, c("motif", "motif_type", "logFC", "PValue", "FDR", "model_used")]
   tbl <- tbl[order(tbl$PValue, na.last = TRUE), , drop = FALSE]
   if (!is.infinite(n)) {
@@ -2636,6 +2690,10 @@ motif_space_size <- function(cellgraph, triplet_mode = NULL, include_wedge = NUL
   if (K < 1) stop("cellgraph has no label levels.")
   if (is.null(triplet_mode)) {
     triplet_mode <- if (!is.null(cellgraph$edger$triplet_mode)) cellgraph$edger$triplet_mode else "separate"
+    if (is.list(triplet_mode)) {
+      triplet_mode <- triplet_mode[["volume"]]
+      if (is.null(triplet_mode)) triplet_mode <- unname(triplet_mode[[1]])
+    }
   }
   triplet_mode <- match.arg(triplet_mode, c("separate", "merge", "closure"))
   if (is.null(include_wedge)) {
@@ -2665,138 +2723,4 @@ motif_space_size <- function(cellgraph, triplet_mode = NULL, include_wedge = NUL
     counts = counts,
     total = sum(counts$n_possible)
   )
-}
-
-#' Extract top motifs from stored strategies
-#'
-#' Pull a ranked data frame of motifs using results stored by [motif_edger()].
-#' Set `strategy` to choose between volume, ancova, or hybrid models.
-#'
-#' @param cellgraph A `cellEdgeR_obj` with `edger` results.
-#' @param strategy Which strategy to use: `hybrid`, `ancova`, or `volume`
-#'   (defaults to `hybrid`; hybrid applies volume to node/edge motifs and ancova to 3-node motifs).
-#' @param coef Coefficient name or index; defaults to the first non-intercept coefficient,
-#'   or the intercept when only an intercept is present.
-#' @param model Which stored model to use for edgeR strategies: `full` or `null`.
-#' @param n Number of motifs to return; defaults to all.
-#' @param fdr_method Multiple testing correction method for `p.adjust` (default `BH`).
-#' @param append_strategies Optional vector of strategies to append raw PValues/logFC for.
-#'   Use `TRUE` to append all other strategies.
-#' @return A data frame with columns: motif, motif_type, logFC, PValue, FDR, model_used.
-#'   For `hybrid`, FDR is computed separately for node/edge motifs and 3-node motifs.
-#'   Additional `logFC_<strategy>` and `PValue_<strategy>` columns are added when requested.
-#' @export
-top_motifs <- function(
-  cellgraph,
-  strategy = c("hybrid", "ancova", "volume"),
-  coef = NULL,
-  model = c("full", "null"),
-  n = Inf,
-  fdr_method = "BH",
-  append_strategies = NULL
-) {
-  validate_motif_obj(cellgraph, require_offsets = FALSE)
-  edger <- cellgraph$edger
-  if (is.null(edger) || !is.list(edger)) {
-    stop("cellgraph$edger is missing; run motif_edger() first.")
-  }
-  if (is.null(edger$strategies) || !is.list(edger$strategies)) {
-    stop("cellgraph$edger$strategies is missing; rerun motif_edger().")
-  }
-  strategy <- match.arg(strategy)
-  if (identical(strategy, "hybrid")) {
-    missing_strats <- setdiff(c("volume", "ancova"), names(edger$strategies))
-    if (length(missing_strats)) {
-      stop("Hybrid strategy requires: ", paste(missing_strats, collapse = ", "),
-        ". Rerun motif_edger(strategies = c(\"volume\", \"ancova\")).")
-    }
-  } else if (!strategy %in% names(edger$strategies)) {
-    stop("Strategy not found: ", strategy, ". Available: ", paste(names(edger$strategies), collapse = ", "))
-  }
-  model <- match.arg(model)
-
-  motif_info <- edger$motif_info
-  if (is.null(motif_info)) {
-    motif_info <- data.frame(motif = character(), motif_type = character(), stringsAsFactors = FALSE)
-  }
-
-  volume_types <- c("node", "edge")
-  ancova_types <- c("triangle", "wedge", "triplet")
-
-  get_hybrid_table <- function() {
-    vol_tbl <- get_strategy_table(cellgraph, "volume", coef = coef, model = model)
-    anc_tbl <- get_strategy_table(cellgraph, "ancova", coef = coef, model = model)
-    if (nrow(motif_info)) {
-      base_tbl <- motif_info
-    } else {
-      motifs <- unique(c(vol_tbl$motif, anc_tbl$motif))
-      base_tbl <- data.frame(motif = motifs, motif_type = NA_character_, stringsAsFactors = FALSE)
-    }
-    base_tbl$logFC <- NA_real_
-    base_tbl$PValue <- NA_real_
-    if (nrow(base_tbl)) {
-      vol_idx <- base_tbl$motif_type %in% volume_types
-      anc_idx <- base_tbl$motif_type %in% ancova_types
-      vol_match <- match(base_tbl$motif, vol_tbl$motif)
-      anc_match <- match(base_tbl$motif, anc_tbl$motif)
-      if (any(vol_idx)) {
-        base_tbl$logFC[vol_idx] <- vol_tbl$logFC[vol_match[vol_idx]]
-        base_tbl$PValue[vol_idx] <- vol_tbl$PValue[vol_match[vol_idx]]
-      }
-      if (any(anc_idx)) {
-        base_tbl$logFC[anc_idx] <- anc_tbl$logFC[anc_match[anc_idx]]
-        base_tbl$PValue[anc_idx] <- anc_tbl$PValue[anc_match[anc_idx]]
-      }
-    }
-    base_tbl
-  }
-
-  if (identical(strategy, "hybrid")) {
-    main_tbl <- get_hybrid_table()
-    main_tbl$FDR <- NA_real_
-    vol_idx <- main_tbl$motif_type %in% volume_types
-    anc_idx <- main_tbl$motif_type %in% ancova_types
-    if (any(vol_idx)) {
-      main_tbl$FDR[vol_idx] <- stats::p.adjust(main_tbl$PValue[vol_idx], method = fdr_method)
-    }
-    if (any(anc_idx)) {
-      main_tbl$FDR[anc_idx] <- stats::p.adjust(main_tbl$PValue[anc_idx], method = fdr_method)
-    }
-    main_tbl$model_used <- NA_character_
-    if (any(vol_idx)) main_tbl$model_used[vol_idx] <- "volume"
-    if (any(anc_idx)) main_tbl$model_used[anc_idx] <- "ancova"
-  } else {
-    main_tbl <- get_strategy_table(cellgraph, strategy, coef = coef, model = model)
-    main_tbl$FDR <- stats::p.adjust(main_tbl$PValue, method = fdr_method)
-    main_tbl$model_used <- strategy
-  }
-  main_tbl <- main_tbl[, c("motif", "motif_type", "logFC", "PValue", "FDR", "model_used")]
-  main_tbl <- main_tbl[order(main_tbl$PValue, na.last = TRUE), , drop = FALSE]
-
-  if (!is.null(append_strategies)) {
-    if (isTRUE(append_strategies)) {
-      append_strategies <- setdiff(names(edger$strategies), strategy)
-    }
-    append_strategies <- unique(as.character(append_strategies))
-    append_strategies <- setdiff(append_strategies, strategy)
-    for (s in append_strategies) {
-      if (!s %in% names(edger$strategies)) {
-        warning("Skipping unknown strategy: ", s)
-        next
-      }
-      tbl <- get_strategy_table(cellgraph, s, coef = coef, model = model)
-      tbl <- tbl[, c("motif", "logFC", "PValue")]
-      names(tbl)[2:3] <- c(paste0("logFC_", s), paste0("PValue_", s))
-      match_idx <- match(main_tbl$motif, tbl$motif)
-      main_tbl[[paste0("logFC_", s)]] <- tbl[[paste0("logFC_", s)]][match_idx]
-      main_tbl[[paste0("PValue_", s)]] <- tbl[[paste0("PValue_", s)]][match_idx]
-    }
-  }
-
-  if (!is.infinite(n)) {
-    n <- as.integer(n[1])
-    if (is.na(n) || n < 0) stop("n must be non-negative.")
-    main_tbl <- utils::head(main_tbl, n)
-  }
-  main_tbl
 }

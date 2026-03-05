@@ -69,7 +69,7 @@ test_that("edgeR pipeline runs with BH correction", {
     s2 = data.frame(x = c(0, 2, 0), y = c(0, 0, 2), label = c("A", "B", "B"))
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
-  motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, include_wedge = TRUE, verbose = FALSE)
   sample_df <- data.frame(condition = c("ctrl", "treated"), row.names = motif_obj$sample_name)
 
   res <- motif_edger(
@@ -81,8 +81,8 @@ test_that("edgeR pipeline runs with BH correction", {
 
   expect_true(inherits(res, "cellEdgeR_obj"))
   expect_true(is.list(res$edger$strategies))
-  expect_true(all(c("volume", "ancova") %in% names(res$edger$strategies)))
-  tbl <- top_motifs_simple(res, coef = "conditiontreated")
+  expect_true(all(c("volume", "submotif_adj") %in% names(res$edger$strategies)))
+  tbl <- top_edges(res, coef = "conditiontreated")
   expect_true(is.data.frame(tbl))
   expect_true(all(c("motif", "motif_type", "logFC", "PValue", "FDR") %in% names(tbl)))
   expect_true(all(tbl$motif_type %in% c("node", "edge")))
@@ -94,7 +94,7 @@ test_that("motif_edger supports intercept-only design", {
     s2 = data.frame(x = c(0, 2, 0), y = c(0, 0, 2), label = c("A", "B", "B"))
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
-  motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, include_wedge = TRUE, verbose = FALSE)
   sample_df <- data.frame(intercept = rep(1, length(motif_obj$sample_name)), row.names = motif_obj$sample_name)
   res <- motif_edger(
     cellgraph = motif_obj,
@@ -102,7 +102,7 @@ test_that("motif_edger supports intercept-only design", {
     design_formula = "~ 1",
     verbose = FALSE
   )
-  tbl <- top_motifs_simple(res, model = "null")
+  tbl <- top_edges(res, model = "null")
   expect_true(all(is.na(tbl$PValue) | is.numeric(tbl$PValue)))
 })
 
@@ -160,9 +160,10 @@ test_that("wedge is modeled when not merged", {
     cellgraph = motif_obj,
     sample_df = sample_df,
     design_formula = "~ group",
+    triplet_mode = "closure",
     verbose = FALSE
   )
-  tbl <- top_motifs_triplet(res, strategy = "volume", coef = "groupg2")
+  tbl <- top_triplets(res, strategy = "topology", coef = "groupg2")
   expect_true(any(tbl$motif_type == "wedge"))
   if (any(tbl$motif_type == "wedge")) {
     expect_true(all(grepl("^W_", tbl$motif[tbl$motif_type == "wedge"])))
@@ -187,7 +188,7 @@ test_that("triplet_mode merge collapses 3-node motifs", {
   )
   expect_true(any(res$edger$motif_info$motif_type == "triplet"))
   expect_false(any(res$edger$motif_info$motif_type %in% c("triangle", "wedge")))
-  tbl <- top_motifs_triplet(res, strategy = "volume", coef = "groupg2", triplet_mode = "merge")
+  tbl <- top_triplets(res, coef = "groupg2")
   expect_true(all(tbl$motif_type == "triplet"))
 })
 
@@ -204,10 +205,10 @@ test_that("triplet_mode closure uses triplet_force covariate", {
     sample_df = sample_df,
     design_formula = "~ group",
     triplet_mode = "closure",
-    strategies = "ancova",
+    strategies = "submotif_adj",
     verbose = FALSE
   )
-  expect_true("triplet_force" %in% res$edger$strategies$ancova$coef_names)
+  expect_true("triplet_force" %in% res$edger$strategies$submotif_adj$coef_names)
 })
 
 test_that("erosion drops boundary cells without retriangulating", {

@@ -52,3 +52,19 @@ rsconnect/
 .DS_Store
 inst/scripts/dev_workflow.R
 docs
+
+# Analysis assets (comparison workspace)
+analysis/data/raw/*
+!analysis/data/raw/.gitkeep
+!analysis/data/raw/serialNull/
+analysis/data/raw/serialNull/*
+!analysis/data/raw/serialNull/.gitkeep
+analysis/external/graphcompass/
+analysis/.venv-graphcompass/
+analysis/.cache-python/
+analysis/serialnull/cache/
+analysis/serialnull/results/
+analysis/serialnull/config/sample_splits.csv
+analysis/serialnull/config/sample_df_odd_even.csv
+analysis/serialnull/config/sample_df_first_half_second_half.csv
+__pycache__/

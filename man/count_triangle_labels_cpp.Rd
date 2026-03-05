@@ -17,7 +17,8 @@ count_triangle_labels_cpp(n_nodes, ei, ej, labels, label_ids, count_wedges)
 }
 \value{
 A list with \code{keys} (label triplets as strings), \code{counts}, and \code{tri_total}
-(total number of triangles).
+(total number of triangles). When \code{count_wedges} is true, also returns wedge
+counts plus \code{triplet_keys}/\code{triplet_counts} for centered triples (open+closed).
 }
 \description{
 Count triangles by unordered label triplets on an undirected graph.

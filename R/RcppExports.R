@@ -9,7 +9,8 @@
 #' @param label_ids Sequence 1..K (kept for compatibility).
 #'
 #' @return A list with `keys` (label triplets as strings), `counts`, and `tri_total`
-#'   (total number of triangles).
+#'   (total number of triangles). When `count_wedges` is true, also returns wedge
+#'   counts plus `triplet_keys`/`triplet_counts` for centered triples (open+closed).
 #'
 #' @keywords internal
 count_triangle_labels_cpp <- function(n_nodes, ei, ej, labels, label_ids, count_wedges) {

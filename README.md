@@ -54,7 +54,7 @@ library(CellEdgeR)
    normalized counts, and relative counts are stored per offset mode (e.g., `cellgraph$norm_counts$volume`,
    `cellgraph$norm_counts$hier_null`).
 
-3. **Fit differential models (offsets already computed)**
+3. **Fit differential models **
    ```r
    cellgraph <- motif_edger(
      cellgraph = cellgraph,
@@ -62,20 +62,30 @@ library(CellEdgeR)
      design_formula = "~ condition + batch"
    )
 
-   simple_tbl <- top_motifs_simple(cellgraph, coef = "conditiontreated")
-   triplet_tbl <- top_motifs_triplet(cellgraph, strategy = "ancova", coef = "conditiontreated")
-   head(simple_tbl)
-   head(triplet_tbl)
+   edges_tbl <- top_edges(cellgraph, coef = "conditiontreated")
+   topo_tbl <- top_triplets(cellgraph, strategy = "topology", coef = "conditiontreated")
+   head(edges_tbl)
+   head(topo_tbl)
    ```
 
-   `motif_edger()` runs volume and ancova strategies by default and stores results in
-   `cellgraph$edger$strategies`. Use `top_motifs_simple()` for node/edge motifs (volume offsets)
-   and `top_motifs_triplet()` for 3-node motifs (volume or ancova). For triplets, use
-   `triplet_mode = "merge"` to collapse wedges+triangles into unordered triplet motifs, or
-   `triplet_mode = "closure"` to model wedges separately and test triangle closure using total
-   triples (open+closed) as a covariate. Both require `count_motifs_graphs(..., include_wedge = TRUE)`.
+   `motif_edger()` runs volume and submotif-adjusted (`submotif_adj`) strategies by default and stores results in
+   `cellgraph$edger$strategies`. Use `top_edges()` for node/edge motifs (volume offsets).
+   For 3-node motifs, **co-occurrence vs topology is a critical choice**:
+   - **Co-occurrence** (`top_triplets(..., strategy = "cooccurrence")`): wedges + triangles are
+     merged into unordered triplets (`TP_*`) and modeled with volume offsets only.
+     This tests whether a label triplet is enriched overall, regardless of closure.
+   - **Topology** (`top_triplets(..., strategy = "topology")`): wedges and triangles are modeled
+     separately in closure mode. **Wedges are submotif-adjusted using edge-derived covariates**
+     (edge-force), while triangles test closure using total triples as a covariate (submotif-adjusted).
 
-4. **Inspect/visualize motifs (optional)**
+   By default, `motif_edger()` computes both co-occurrence (merge) and topology (closure)
+   results in a single call (when `include_wedge = TRUE`), so `top_triplets()` can switch
+   strategies without rerunning the model.
+
+   For co-occurrence results only, `model = "full"` uses your full design, while
+   `model = "null"` is intercept-only (baseline rate). Topology ignores `model`.
+
+4. **Inspect/visualize motifs **
 
    ```r
    norm_df <- get_motif_values(cellgraph, value = "norm")
@@ -131,7 +141,7 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
   touching those cells are excluded without re-triangulating.
 - Record the `max_edge_len` used for each run so downstream results stay traceable.
 - For quick inspection, use `get_motif_values(cellgraph, value = "norm")` and apply your own plotting/statistics.
-- `get_motif_values(..., value = "norm")` uses the `volume` offsets only, matching the hybrid modeling offsets.
+- `get_motif_values(..., value = "norm")` uses the `volume` offsets only (the baseline for co-occurrence and topology models).
 - `motif_space_size()` reports the combinatorial number of possible motif labels given the stored label set and triplet mode.
 
 ## Glossary
@@ -139,9 +149,10 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - `build_cell_graphs()`: Build per-sample Delaunay graphs from coordinates and labels.
 - `count_motifs_graphs()`: Count node/edge/triangle (and optional wedge) motifs and compute offsets/normalization.
 - `merge_motif_objs()`: Merge two motif objects and recompute offsets/normalized counts.
-- `motif_edger()`: Fit differential motif models (volume, ancova) and store results.
-- `top_motifs_simple()`: Return ranked node/edge motifs (volume offsets).
-- `top_motifs_triplet()`: Return ranked 3-node motifs (volume or ancova; separate or merged).
+- `motif_edger()`: Fit differential motif models (volume, submotif-adjusted) and store results.
+- `top_edges()`: Return ranked node/edge motifs (volume offsets).
+- `top_triplets()`: Return ranked 3-node motifs; **co-occurrence** (merged, volume-only) or
+  **topology** (closure, submotif-adjusted).
 - `motif_space_size()`: Count possible motif labels based on label set and triplet mode.
 - `get_motif_values()`: Return raw/normalized motif values (optionally including lower-order submotifs; normalized uses `volume` offsets).
 - `plot_sample_graph()`: Plot one sample's graph and highlight motifs.

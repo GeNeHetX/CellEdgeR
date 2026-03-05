@@ -1,0 +1,121 @@
+---
+title: "HochSchulz_2022_Melanoma permutation"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+
+repo_candidates <- unique(normalizePath(c(getwd(), file.path(getwd(), "..")), mustWork = FALSE))
+repo_hit <- vapply(repo_candidates, function(path) {
+  desc <- file.path(path, "DESCRIPTION")
+  file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
+}, logical(1))
+root_dir <- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
+use_local <- !is.na(root_dir)
+```
+
+```{r libs}
+if (use_local && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(root_dir)
+} else if (!requireNamespace("CellEdgeR", quietly = TRUE)) {
+  stop("Install CellEdgeR or run this report inside the repo with devtools::load_all().")
+}
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  stop("Install dplyr.")
+}
+if (!requireNamespace("tidyr", quietly = TRUE)) {
+  stop("Install tidyr.")
+}
+
+library(CellEdgeR)
+library(dplyr)
+library(tidyr)
+
+helpers_path <- if (use_local) {
+  file.path(root_dir, "analysis", "hochschulz_2022_melanoma_shared.R")
+} else {
+  "analysis/hochschulz_2022_melanoma_shared.R"
+}
+if (!file.exists(helpers_path)) {
+  stop("Missing helper script at: ", helpers_path)
+}
+source(helpers_path)
+```
+
+```{r cache-load}
+cache_dir <- if (use_local) file.path(root_dir, "analysis", "cache") else tempdir()
+base_cache <- file.path(cache_dir, "hochschulz_base.rds")
+if (!file.exists(base_cache)) {
+  stop("Base cache not found: ", base_cache, ". Run hochschulz_2022_melanoma_base.Rmd first.")
+}
+
+base <- readRDS(base_cache)
+graphs <- base$graphs
+edge_cut <- base$edge_cut
+sample_df <- base$sample_df
+coef_name <- base$coef_name
+group_col <- base$params$group_col
+include_wedge <- isTRUE(base$params$include_wedge)
+n_cores <- base$params$n_cores
+```
+
+```{r params}
+n_perm <- 20
+perm_seed <- 100
+force_run <- FALSE
+```
+
+```{r run}
+perm_cache <- file.path(cache_dir, "hochschulz_perm.rds")
+perm_ran <- FALSE
+
+if (!force_run && file.exists(perm_cache)) {
+  perm_pvals <- readRDS(perm_cache)$perm_pvals
+} else {
+  set.seed(perm_seed)
+  perm_ids <- seq_len(n_perm)
+
+  run_perm <- function(i) {
+    gperm <- permute_graph_labels(graphs, seed = perm_seed + i)
+    cperm <- count_motifs_graphs(
+      graph_obj = gperm,
+      max_edge_len = edge_cut,
+      include_wedge = include_wedge,
+      n_cores = n_cores,
+      verbose = FALSE
+    )
+    res_perm <- motif_edger(
+      cellgraph = cperm,
+      sample_df = sample_df,
+      design_formula = as.formula(paste0("~ ", group_col)),
+      triplet_mode = "both",
+      strategies = c("volume", "submotif_adj"),
+      verbose = FALSE
+    )
+    stack_layer_pvals(collect_layer_tables(res_perm, coef_name = coef_name), perm_id = i)
+  }
+
+  perm_pvals <- bind_rows(par_apply(perm_ids, run_perm, n_cores = n_cores))
+  perm_ran <- TRUE
+}
+```
+
+```{r cache-save}
+if (perm_ran) {
+  saveRDS(
+    list(
+      perm_pvals = perm_pvals,
+      params = list(n_perm = n_perm, perm_seed = perm_seed)
+    ),
+    perm_cache
+  )
+  message("Saved permutation cache: ", perm_cache)
+} else {
+  message("Using existing permutation cache: ", perm_cache)
+}
+```
+
+Summary: `r nrow(perm_pvals)` permuted motif p-values across `r length(unique(perm_pvals$layer))` layers.

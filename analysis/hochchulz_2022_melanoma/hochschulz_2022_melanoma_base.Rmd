@@ -1,0 +1,253 @@
+---
+title: "HochSchulz_2022_Melanoma base cache"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+
+repo_candidates <- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), ".."),
+  file.path(getwd(), "..", ".."),
+  file.path(getwd(), "..", "..", "..")
+), mustWork = FALSE))
+repo_hit <- vapply(repo_candidates, function(path) {
+  desc <- file.path(path, "DESCRIPTION")
+  file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
+}, logical(1))
+root_dir <- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
+use_local <- !is.na(root_dir)
+```
+
+```{r libs}
+if (use_local && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(root_dir)
+} else if (!requireNamespace("CellEdgeR", quietly = TRUE)) {
+  stop("Install CellEdgeR or run this report inside the repo with devtools::load_all().")
+}
+if (!requireNamespace("imcdatasets", quietly = TRUE)) {
+  stop("Install imcdatasets with BiocManager::install('imcdatasets').")
+}
+if (!requireNamespace("SpatialExperiment", quietly = TRUE)) {
+  stop("Install SpatialExperiment.")
+}
+if (!requireNamespace("SummarizedExperiment", quietly = TRUE)) {
+  stop("Install SummarizedExperiment.")
+}
+
+library(CellEdgeR)
+library(imcdatasets)
+library(SpatialExperiment)
+library(SummarizedExperiment)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+helpers_candidates <- c(
+  if (use_local) file.path(root_dir, "analysis", "hochchulz_2022_melanoma", "hochschulz_2022_melanoma_shared.R"),
+  "analysis/hochchulz_2022_melanoma/hochschulz_2022_melanoma_shared.R",
+  "hochschulz_2022_melanoma_shared.R"
+)
+helpers_candidates <- unique(helpers_candidates[!is.na(helpers_candidates)])
+helpers_hits <- helpers_candidates[file.exists(helpers_candidates)]
+if (!length(helpers_hits)) {
+  stop("Missing helper script. Tried: ", paste(helpers_candidates, collapse = ", "))
+}
+helpers_path <- helpers_hits[1]
+source(helpers_path)
+
+if (!"triplet_mode" %in% names(formals(CellEdgeR::motif_edger))) {
+  stop("This report requires a CellEdgeR version that supports triplet_mode.")
+}
+```
+
+```{r params}
+seed <- 1
+set.seed(seed)
+full_dataset <- FALSE
+spe_type <- "spe"
+label_col <- "cell_type"
+image_col <- "image_name"
+x_col <- "cell_x"
+y_col <- "cell_y"
+group_col <- NULL
+min_cells_per_image <- 200
+max_cells_per_image <- NULL
+max_images <- NULL
+include_wedge <- TRUE
+edge_len_quantile <- 0.99
+n_cores <- 6
+
+cache_dir <- if (use_local) file.path(root_dir, "analysis", "cache") else tempdir()
+if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+base_cache <- file.path(cache_dir, "hochschulz_base.rds")
+```
+
+```{r data}
+spe <- load_hochschulz(data_type = spe_type, full_dataset = full_dataset)
+cd <- as.data.frame(colData(spe))
+
+if (is.null(group_col)) {
+  group_candidates <- c(
+    "patient_treatment_group_after_surgery",
+    "patient_treatment_group_before_surgery",
+    "patient_status_at_3months",
+    "patient_relapse",
+    "sample_tissue_type",
+    "sample_location",
+    "patient_mutation"
+  )
+  group_col <- pick_group_col(cd, group_candidates)
+}
+if (is.na(group_col)) {
+  stop("Set group_col explicitly after inspecting colData(spe).")
+}
+```
+
+```{r build}
+prep <- prepare_cells_by_sample(
+  spe,
+  label_col = label_col,
+  image_col = image_col,
+  x_col = x_col,
+  y_col = y_col,
+  min_cells = min_cells_per_image,
+  max_cells = max_cells_per_image,
+  max_images = max_images
+)
+
+cells_by_sample <- prep$cells_by_sample
+cell_df <- prep$cell_df
+cell_df$image <- as.character(cell_df$image)
+names(cells_by_sample) <- as.character(names(cells_by_sample))
+
+sample_df <- data.frame(sample = names(cells_by_sample), stringsAsFactors = FALSE)
+group_map <- as.data.frame(colData(spe)) %>%
+  select(all_of(c(image_col, group_col))) %>%
+  distinct() %>%
+  group_by(.data[[image_col]]) %>%
+  slice(1) %>%
+  ungroup()
+names(group_map)[names(group_map) == image_col] <- "sample"
+group_map$sample <- as.character(group_map$sample)
+sample_df$sample <- as.character(sample_df$sample)
+sample_df <- sample_df %>% left_join(group_map, by = "sample")
+rownames(sample_df) <- sample_df$sample
+sample_df[[group_col]] <- factor(sample_df[[group_col]])
+
+missing_group <- is.na(sample_df[[group_col]])
+if (any(missing_group)) {
+  drop_samples <- rownames(sample_df)[missing_group]
+  message("Dropping samples with missing group: ", paste(drop_samples, collapse = ", "))
+  sample_df <- sample_df[!missing_group, , drop = FALSE]
+  cells_by_sample <- cells_by_sample[rownames(sample_df)]
+  cell_df <- cell_df[cell_df$image %in% rownames(sample_df), , drop = FALSE]
+}
+```
+
+```{r graphs}
+graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = TRUE)
+edge_len <- unlist(lapply(graphs$per_sample_graph, function(ps) ps$edge_len))
+edge_cut <- as.numeric(stats::quantile(edge_len, probs = edge_len_quantile, na.rm = TRUE))
+
+counts <- count_motifs_graphs(
+  graph_obj = graphs,
+  max_edge_len = edge_cut,
+  include_wedge = include_wedge,
+  n_cores = n_cores,
+  verbose = TRUE
+)
+```
+
+```{r models}
+coef_name <- NULL
+res <- motif_edger(
+  cellgraph = counts,
+  sample_df = sample_df,
+  design_formula = as.formula(paste0("~ ", group_col)),
+  triplet_mode = "both",
+  strategies = c("volume", "submotif_adj"),
+  verbose = TRUE
+)
+layers_base <- collect_layer_tables(res, coef_name = coef_name)
+```
+
+```{r volcano}
+nodes_tbl <- layers_base$node
+edges_tbl <- layers_base$edge
+triplets_co <- layers_base$triplet_cooccurrence
+triplets_topo <- dplyr::bind_rows(layers_base$triangle, layers_base$wedge)
+
+plot_motif_volcano(
+  nodes_tbl,
+  title = "Nodes: volume offsets",
+  label_mode = "top_bottom_n",
+  label_n = 6
+)
+
+plot_motif_volcano(
+  edges_tbl,
+  title = "Edges: volume offsets",
+  label_mode = "top_bottom_n",
+  label_n = 6
+)
+
+plot_motif_volcano(
+  triplets_co,
+  title = "Triplets: co-occurrence",
+  label_mode = "top_bottom_n",
+  label_n = 6
+)
+
+plot_motif_volcano(
+  triplets_topo,
+  title = "Triplets: topology (wedge/triangle)",
+  label_mode = "top_bottom_n",
+  label_n = 6
+)
+
+plot_motif_volcano_triptych(
+  triplets_topo,
+  n_side = 5,
+  title = "Triplets topology: depleted vs enriched",
+  subtitle = paste0("group = ", group_col)
+)
+```
+
+```{r cache}
+base_payload <- list(
+  params = list(
+    seed = seed,
+    full_dataset = full_dataset,
+    spe_type = spe_type,
+    label_col = label_col,
+    image_col = image_col,
+    x_col = x_col,
+    y_col = y_col,
+    group_col = group_col,
+    min_cells_per_image = min_cells_per_image,
+    max_cells_per_image = max_cells_per_image,
+    max_images = max_images,
+    include_wedge = include_wedge,
+    edge_len_quantile = edge_len_quantile,
+    n_cores = n_cores
+  ),
+  graphs = graphs,
+  counts = counts,
+  edge_cut = edge_cut,
+  sample_df = sample_df,
+  cells_by_sample = cells_by_sample,
+  cell_df = cell_df,
+  coef_name = coef_name,
+  res = res,
+  layers_base = layers_base
+)
+
+saveRDS(base_payload, base_cache)
+message("Saved base cache: ", base_cache)
+```
+
+Summary: `r nrow(sample_df)` samples, `r nrow(cell_df)` cells, `r length(unique(cell_df$label))` labels, edge length cutoff = `r signif(edge_cut, 3)`.
