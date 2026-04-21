@@ -1,0 +1,515 @@
+---
+title: "HochSchulz 2022 Melanoma selected motif tissue plots"
+output:
+  html_document:
+    code_folding: hide
+  md_document:
+    variant: gfm
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo = FALSE,
+  fig.width = 12,
+  fig.height = 15,
+  dpi = 150
+)
+
+repo_candidates <- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), ".."),
+  file.path(getwd(), "..", ".."),
+  file.path(getwd(), "..", "..", "..")
+), mustWork = FALSE))
+repo_hit <- vapply(repo_candidates, function(path) {
+  desc <- file.path(path, "DESCRIPTION")
+  file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
+}, logical(1))
+root_dir <- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
+use_local <- !is.na(root_dir)
+
+local_rlib <- if (use_local) file.path(root_dir, ".Rlib") else ".Rlib"
+if (dir.exists(local_rlib)) {
+  .libPaths(c(normalizePath(local_rlib), .libPaths()))
+}
+
+report_dir <- if (use_local) {
+  file.path(root_dir, "analysis", "hochchulz_2022_melanoma")
+} else {
+  normalizePath(getwd(), mustWork = FALSE)
+}
+```
+
+```{r libs}
+if (use_local && requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(root_dir)
+} else if (!requireNamespace("CellEdgeR", quietly = TRUE)) {
+  stop("Install CellEdgeR or run this report inside the repo with devtools::load_all().")
+}
+
+library(CellEdgeR)
+library(dplyr)
+library(ggplot2)
+library(grid)
+
+helpers_candidates <- c(
+  if (use_local) file.path(root_dir, "analysis", "hochchulz_2022_melanoma", "hochschulz_2022_melanoma_shared.R"),
+  "analysis/hochchulz_2022_melanoma/hochschulz_2022_melanoma_shared.R",
+  "hochschulz_2022_melanoma_shared.R"
+)
+helpers_candidates <- unique(helpers_candidates[!is.na(helpers_candidates)])
+helpers_hits <- helpers_candidates[file.exists(helpers_candidates)]
+if (!length(helpers_hits)) {
+  stop("Missing helper script. Tried: ", paste(helpers_candidates, collapse = ", "))
+}
+source(helpers_hits[1])
+```
+
+```{r params}
+n_top_nominal_motifs <- 1
+n_per_group <- 6
+group_col <- "patient_treatment_group_before_surgery"
+group_order <- c("ICI", "untreated")
+offset_modes <- "volume"
+force_render_panels <- FALSE
+offset_mode_labels <- c(
+  volume = "volume offset"
+)
+panel_dir <- file.path(report_dir, "hochschulz_2022_melanoma_selected_motifs_panels")
+boxplot_logged_dir <- file.path(report_dir, "hochschulz_2022_melanoma_selected_motifs_boxplots_logged")
+if (!dir.exists(panel_dir)) dir.create(panel_dir, recursive = TRUE, showWarnings = FALSE)
+if (!dir.exists(boxplot_logged_dir)) dir.create(boxplot_logged_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r cache}
+cache_candidates <- unique(c(
+  if (use_local) file.path(root_dir, "analysis", "cache", "hochschulz_base.rds"),
+  if (use_local) file.path(root_dir, "analysis", "hochchulz_2022_melanoma", "cache", "hochschulz_base.rds"),
+  "analysis/cache/hochschulz_base.rds",
+  "analysis/hochchulz_2022_melanoma/cache/hochschulz_base.rds"
+))
+cache_hits <- cache_candidates[file.exists(cache_candidates)]
+if (!length(cache_hits)) {
+  stop("Base cache not found. Tried: ", paste(cache_candidates, collapse = ", "))
+}
+base_cache <- cache_hits[1]
+base_payload <- readRDS(base_cache)
+
+graphs <- base_payload$graphs
+counts <- base_payload$counts
+edge_cut <- base_payload$edge_cut
+sample_df <- base_payload$sample_df
+if (!"sample" %in% names(sample_df)) sample_df$sample <- rownames(sample_df)
+sample_df$sample <- as.character(sample_df$sample)
+sample_df[[group_col]] <- as.character(sample_df[[group_col]])
+label_levels <- base_payload$label_levels
+
+if (!group_col %in% names(sample_df)) {
+  stop("group_col not present in cached sample_df: ", group_col)
+}
+
+layers_base <- base_payload$layers_base
+result_motifs <- unique(stats::na.omit(as.character(unlist(lapply(
+  c("edge", "motifs2", "triangle", "wedge"),
+  function(layer_name) {
+    tbl <- layers_base[[layer_name]]
+    if (is.null(tbl) || !is.data.frame(tbl) || !"motif" %in% names(tbl)) character() else tbl$motif
+  }
+), use.names = FALSE))))
+count_motifs <- unique(stats::na.omit(as.character(unlist(lapply(
+  c("edge", "triangle", "wedge"),
+  function(layer_name) {
+    mat <- counts$raw_count[[layer_name]]
+    if (is.null(mat)) character() else rownames(mat)
+  }
+), use.names = FALSE))))
+all_motifs <- unique(c(result_motifs, count_motifs))
+if (!length(result_motifs)) {
+  stop("No tested edge or motif2 results found in base cache. Rerun the base report with the volume-first CellEdgeR API.")
+}
+if (!length(all_motifs)) {
+  stop("No motif counts found in base cache.")
+}
+filtered_motifs <- unique(stats::na.omit(as.character(base_payload$edger$filter$filtered_motifs)))
+
+nominal_motif_tbl <- layers_base$motifs2
+if (is.null(nominal_motif_tbl) || !is.data.frame(nominal_motif_tbl) || !nrow(nominal_motif_tbl)) {
+  stop("No tested motif2 table found in base cache.")
+}
+nominal_motif_tbl <- nominal_motif_tbl %>%
+  filter(motif_type %in% c("wedge", "triangle"), is.finite(PValue)) %>%
+  arrange(PValue, FDR, desc(abs(logFC)), motif) %>%
+  mutate(nominal_rank = row_number())
+top_nominal_motif_tbl <- nominal_motif_tbl %>%
+  slice_head(n = n_top_nominal_motifs)
+if (!nrow(top_nominal_motif_tbl)) {
+  stop("No tested W/T motifs with finite nominal p-values found in base cache.")
+}
+
+label_palette <- setNames(
+  grDevices::hcl.colors(length(label_levels), palette = "Dark 3"),
+  label_levels
+)
+```
+
+```{r helpers}
+motif_layer_from_key <- function(motif_key) {
+  prefix <- sub("_.*", "", motif_key)
+  switch(prefix,
+    N = "node",
+    E = "edge",
+    T = "triangle",
+    W = "wedge",
+    TP = "triplet",
+    TW = "triangle",
+    stop("Cannot infer motif layer from key: ", motif_key)
+  )
+}
+
+resolve_motif_key <- function(query, motif_keys) {
+  exact_idx <- which(tolower(motif_keys) == tolower(query))
+  if (length(exact_idx)) {
+    resolved <- motif_keys[exact_idx[1]]
+    return(list(resolved = resolved, edit_distance = 0L))
+  }
+
+  search_keys <- motif_keys
+  if (grepl("^TP_", query, ignore.case = TRUE)) {
+    # TP_* merged triplets are no longer modeled; resolve to the nearest
+    # available wedge or triangle key with the same three labels.
+    motif2_keys <- motif_keys[grepl("^[TW]_", motif_keys)]
+    if (length(motif2_keys)) search_keys <- motif2_keys
+  }
+
+  d <- as.vector(utils::adist(query, search_keys, ignore.case = TRUE))
+  best_idx <- which.min(d)
+  list(resolved = search_keys[best_idx], edit_distance = as.integer(d[best_idx]))
+}
+
+get_norm_values <- function(motif_key, offset_mode = "volume") {
+  if (!identical(offset_mode, "volume")) {
+    stop("Only volume normalized counts are available in the volume-first CellEdgeR API.")
+  }
+
+  vals_df <- get_motif_values(counts, motif_key = motif_key, value = "norm")
+  missing_samples <- setdiff(sample_df$sample, rownames(vals_df))
+  if (length(missing_samples)) {
+    stop("Normalized values missing cached samples: ", paste(missing_samples, collapse = ", "))
+  }
+  vals <- as.numeric(vals_df[sample_df$sample, motif_key])
+  names(vals) <- sample_df$sample
+  vals
+}
+
+select_samples_for_motif <- function(motif_key, offset_mode = "volume", n_per_group = 6, groups = c("ICI", "untreated")) {
+  vals <- get_norm_values(motif_key, offset_mode = offset_mode)
+  df <- data.frame(
+    sample = names(vals),
+    normalized_count = as.numeric(vals),
+    offset_mode = offset_mode,
+    normalization = unname(offset_mode_labels[[offset_mode]]),
+    stringsAsFactors = FALSE
+  ) %>%
+    left_join(sample_df[, c("sample", group_col)], by = "sample") %>%
+    rename(group = all_of(group_col)) %>%
+    filter(!is.na(group), group %in% groups)
+
+  df$sample_num <- suppressWarnings(as.numeric(df$sample))
+  df <- df %>%
+    mutate(group = factor(group, levels = groups)) %>%
+    arrange(group, desc(normalized_count), sample_num, sample) %>%
+    group_by(group) %>%
+    slice_head(n = n_per_group) %>%
+    mutate(rank_within_group = row_number()) %>%
+    ungroup() %>%
+    select(offset_mode, normalization, sample, group, rank_within_group, normalized_count)
+
+  df$group <- as.character(df$group)
+  df
+}
+
+make_sample_plot <- function(motif_key, sample_name, sample_group, normalized_count, offset_mode) {
+  plot_sample_graph(
+    graphs,
+    sample_name = sample_name,
+    max_edge_len = edge_cut,
+    motif_key = motif_key,
+    motif_node_size = 2.4,
+    dim_node_nonmotif = 0.45,
+    alpha_node_nonmotif = 0.18,
+    alpha_edge_nonmotif = 0.18
+  ) +
+    scale_color_manual(values = label_palette, limits = label_levels, drop = FALSE) +
+    ggtitle(sprintf(
+      "Sample %s | %s | %s norm=%.3f",
+      sample_name,
+      sample_group,
+      offset_mode_labels[[offset_mode]],
+      normalized_count
+    )) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 10)
+    )
+}
+
+draw_plot_grid <- function(plot_list, ncol = 3) {
+  n <- length(plot_list)
+  nrow <- max(1, ceiling(n / ncol))
+  grid::grid.newpage()
+  grid::pushViewport(grid::viewport(layout = grid::grid.layout(nrow, ncol)))
+  for (i in seq_along(plot_list)) {
+    row <- ceiling(i / ncol)
+    col <- ((i - 1) %% ncol) + 1
+    print(plot_list[[i]], vp = grid::viewport(layout.pos.row = row, layout.pos.col = col))
+  }
+  invisible(NULL)
+}
+
+panel_slug <- function(motif_key) {
+  gsub("[^A-Za-z0-9]+", "_", motif_key)
+}
+
+pair_key_local <- function(a, b) {
+  pair <- sort(c(a, b))
+  paste0("E_", paste(pair, collapse = "_"))
+}
+
+submotif_keys_for_motif <- function(motif_key) {
+  labels <- strsplit(sub("^[^_]+_", "", motif_key), "_", fixed = TRUE)[[1]]
+  layer <- motif_layer_from_key(motif_key)
+
+  if (layer %in% c("triangle", "wedge", "triplet")) {
+    if (length(labels) != 3L) {
+      stop("Three-label motif does not decode to three labels: ", motif_key)
+    }
+    sub_keys <- c(
+      if (identical(layer, "triplet")) paste0("T_", paste(labels, collapse = "_")) else character(),
+      if (identical(layer, "triplet")) paste0("W_", paste(labels, collapse = "_")) else character(),
+      pair_key_local(labels[1], labels[2]),
+      pair_key_local(labels[1], labels[3]),
+      pair_key_local(labels[2], labels[3])
+    )
+  } else if (identical(layer, "edge")) {
+    if (length(labels) != 2L) {
+      stop("Edge motif does not decode to two labels: ", motif_key)
+    }
+    sub_keys <- paste0("N_", labels)
+  } else {
+    sub_keys <- character()
+  }
+
+  unique(sub_keys[sub_keys %in% all_motifs])
+}
+
+get_motif_with_submotifs <- function(motif_key, offset_mode = "volume") {
+  components <- c(motif_key, setdiff(submotif_keys_for_motif(motif_key), motif_key))
+  out <- data.frame(
+    sample = sample_df$sample,
+    stringsAsFactors = FALSE
+  )
+  for (component in components) {
+    out[[component]] <- as.numeric(get_norm_values(component, offset_mode = offset_mode)[sample_df$sample])
+  }
+
+  rownames(out) <- out$sample
+  out[, setdiff(colnames(out), "sample"), drop = FALSE]
+}
+
+make_submotif_boxplot_df <- function(motif_key, offset_mode = "volume") {
+  vals <- get_motif_with_submotifs(motif_key, offset_mode = offset_mode)
+  components <- colnames(vals)
+  long_df <- data.frame(
+    sample = rep(rownames(vals), times = length(components)),
+    component = rep(components, each = nrow(vals)),
+    normalized_count = as.numeric(as.matrix(vals)),
+    offset_mode = offset_mode,
+    normalization = unname(offset_mode_labels[[offset_mode]]),
+    stringsAsFactors = FALSE
+  ) %>%
+    left_join(sample_df[, c("sample", group_col)], by = "sample") %>%
+    rename(group = all_of(group_col)) %>%
+    filter(!is.na(group), group %in% group_order) %>%
+    mutate(log2_normalized_count = log2(normalized_count + 1))
+
+  long_df$group <- factor(long_df$group, levels = group_order)
+  long_df$component <- factor(long_df$component, levels = components)
+  long_df
+}
+
+make_submotif_boxplot_panel <- function(motif_key, offset_mode = "volume") {
+  plot_df <- make_submotif_boxplot_df(motif_key, offset_mode = offset_mode)
+
+  ggplot(plot_df, aes(x = group, y = log2_normalized_count, fill = group)) +
+    geom_boxplot(alpha = 0.7, width = 0.55, outlier.alpha = 0.25) +
+    geom_jitter(width = 0.12, alpha = 0.65, size = 1.1, color = "#1b4f72") +
+    facet_wrap(~ component, scales = "free_y", ncol = 2) +
+    scale_fill_manual(values = c(ICI = "#c65d2e", untreated = "#3b7a57"), drop = FALSE) +
+    labs(
+      title = paste("Logged normalized counts for motif and submotifs:", motif_key),
+      subtitle = offset_mode_labels[[offset_mode]],
+      x = NULL,
+      y = "log2(normalized count + 1)"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      strip.text = element_text(size = 9),
+      plot.title = element_text(size = 11)
+    )
+}
+
+save_panel_png <- function(motif_key, selected_df, out_path, offset_mode) {
+  plot_list <- lapply(seq_len(nrow(selected_df)), function(i) {
+    make_sample_plot(
+      motif_key = motif_key,
+      sample_name = selected_df$sample[i],
+      sample_group = selected_df$group[i],
+      normalized_count = selected_df$normalized_count[i],
+      offset_mode = offset_mode
+    )
+  })
+
+  grDevices::png(
+    filename = out_path,
+    width = 1800,
+    height = 2400,
+    res = 180
+  )
+  on.exit(grDevices::dev.off(), add = TRUE)
+  draw_plot_grid(plot_list, ncol = 3)
+  invisible(out_path)
+}
+
+save_boxplot_png <- function(motif_key, out_path, offset_mode) {
+  p <- make_submotif_boxplot_panel(motif_key, offset_mode = offset_mode)
+  grDevices::png(
+    filename = out_path,
+    width = 1800,
+    height = 1200,
+    res = 180
+  )
+  on.exit(grDevices::dev.off(), add = TRUE)
+  print(p)
+  invisible(out_path)
+}
+
+resolved_tbl <- top_nominal_motif_tbl %>%
+  transmute(
+    selection_rank = nominal_rank,
+    resolved_motif = motif,
+    motif_layer = motif_type,
+    logFC = logFC,
+    PValue = PValue,
+    FDR = FDR,
+    edgeR_test_status = "tested"
+  )
+
+selected_samples <- setNames(
+  lapply(offset_modes, function(offset_mode) {
+    setNames(
+      lapply(
+        resolved_tbl$resolved_motif,
+        select_samples_for_motif,
+        offset_mode = offset_mode,
+        n_per_group = n_per_group,
+        groups = group_order
+      ),
+      resolved_tbl$resolved_motif
+    )
+  }),
+  offset_modes
+)
+
+offset_path_slug <- function(offset_mode) {
+  offset_mode
+}
+
+panel_rel_path_for_mode <- function(motif_key, offset_mode) {
+  file.path("hochschulz_2022_melanoma_selected_motifs_panels", paste0(panel_slug(motif_key), ".png"))
+}
+
+panel_paths <- setNames(lapply(offset_modes, function(mode) setNames(vector("list", nrow(resolved_tbl)), resolved_tbl$resolved_motif)), offset_modes)
+boxplot_paths <- setNames(lapply(offset_modes, function(mode) setNames(vector("list", nrow(resolved_tbl)), resolved_tbl$resolved_motif)), offset_modes)
+
+for (offset_mode in offset_modes) {
+  for (motif_key in resolved_tbl$resolved_motif) {
+    panel_rel_path <- panel_rel_path_for_mode(motif_key, offset_mode)
+    panel_abs_path <- file.path(report_dir, panel_rel_path)
+    dir.create(dirname(panel_abs_path), recursive = TRUE, showWarnings = FALSE)
+    if (force_render_panels || !file.exists(panel_abs_path)) {
+      save_panel_png(motif_key, selected_samples[[offset_mode]][[motif_key]], panel_abs_path, offset_mode = offset_mode)
+    }
+    panel_paths[[offset_mode]][[motif_key]] <- panel_rel_path
+
+    boxplot_rel_path <- file.path(
+      "hochschulz_2022_melanoma_selected_motifs_boxplots_logged",
+      offset_path_slug(offset_mode),
+      paste0(panel_slug(motif_key), ".png")
+    )
+    boxplot_abs_path <- file.path(report_dir, boxplot_rel_path)
+    dir.create(dirname(boxplot_abs_path), recursive = TRUE, showWarnings = FALSE)
+    if (force_render_panels || !file.exists(boxplot_abs_path)) {
+      save_boxplot_png(motif_key, boxplot_abs_path, offset_mode = offset_mode)
+    }
+    boxplot_paths[[offset_mode]][[motif_key]] <- boxplot_rel_path
+  }
+}
+
+group_counts <- table(sample_df[[group_col]])
+selection_rows <- bind_rows(lapply(offset_modes, function(offset_mode) {
+  bind_rows(lapply(names(selected_samples[[offset_mode]]), function(motif_key) {
+    dplyr::mutate(selected_samples[[offset_mode]][[motif_key]], motif = motif_key, .before = 1)
+  }))
+}))
+```
+
+## Summary
+
+- Contrast cache: `r basename(base_cache)` using `r group_col`.
+- Available samples in cache: `r paste(sprintf("%s = %d", names(group_counts), as.integer(group_counts)), collapse = ", ")`.
+- Normalization view: `r paste(unname(offset_mode_labels[offset_modes]), collapse = " and ")`.
+- Selected motifs: top `r nrow(resolved_tbl)` tested wedge/triangle motifs by nominal `PValue`.
+- Per motif, selection rule: top `r n_per_group` `ICI` samples and top `r n_per_group` `untreated` samples by volume-normalized motif abundance.
+- Boxplots show `log2(normalized count + 1)`.
+- Low-count motifs filtered by `edgeR::filterByExpr()` are not eligible for this nominal-p-value selection.
+
+```{r motif-map}
+knitr::kable(resolved_tbl, align = "l")
+```
+
+```{r selection-preview}
+knitr::kable(selection_rows, digits = 4, align = "l")
+```
+
+```{r motif-sections, results='asis'}
+for (i in seq_len(nrow(resolved_tbl))) {
+  motif_info <- resolved_tbl[i, , drop = FALSE]
+  motif_key <- motif_info$resolved_motif[[1]]
+
+  cat("## ", motif_key, "\n\n", sep = "")
+  cat("- Nominal PValue rank: `", motif_info$selection_rank[[1]], "`\n", sep = "")
+  cat("- Layer: `", motif_info$motif_layer[[1]], "`\n", sep = "")
+  cat("- logFC: `", signif(motif_info$logFC[[1]], 4), "`\n", sep = "")
+  cat("- Nominal PValue: `", signif(motif_info$PValue[[1]], 4), "`\n", sep = "")
+  cat("- FDR: `", signif(motif_info$FDR[[1]], 4), "`\n", sep = "")
+  cat("- edgeR test status: `", motif_info$edgeR_test_status[[1]], "`\n", sep = "")
+  cat("- Selection: highest volume-normalized motif abundance within each group.\n\n")
+
+  for (offset_mode in offset_modes) {
+    samples_tbl <- selected_samples[[offset_mode]][[motif_key]]
+    panel_rel_path <- panel_paths[[offset_mode]][[motif_key]]
+    boxplot_rel_path <- boxplot_paths[[offset_mode]][[motif_key]]
+
+    cat("### ", offset_mode_labels[[offset_mode]], "\n\n", sep = "")
+    print(knitr::kable(samples_tbl, digits = 4, align = "l"))
+    cat("\n\n")
+    cat("Spatial motif plots selected by ", offset_mode_labels[[offset_mode]], " normalized abundance:\n\n", sep = "")
+    cat("![](", panel_rel_path, ")\n\n", sep = "")
+    cat("Logged normalized motif and submotif boxplots:\n\n")
+    cat("![](", boxplot_rel_path, ")\n\n", sep = "")
+  }
+}
+```

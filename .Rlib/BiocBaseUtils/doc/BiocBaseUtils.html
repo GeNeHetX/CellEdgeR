@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+   <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <meta name="generator" content="r-universe/pandoc">
+      <meta name="author" content="Bioconductor Core Team">
+      
+      <title>BiocBaseUtils Quick Start</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" data-external="1">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" data-external="1">
+      <link rel="stylesheet" href="https://r-universe.dev/static/article-styles.css?nocache=1" data-external="1">
+   </head>
+   <body>
+      <div class="container" id="topcontainer">
+         <script>if (window.self != window.top) try {document.getElementById('topcontainer').className = "container-fluid article-in-iframe"; } catch(e) {}</script>
+
+         <div class="frontmatter">
+         <h1 class="title">BiocBaseUtils Quick Start</h1>
+         </div>
+
+                  <div class="row">
+            <div class="col-xl-10"><div id="biocbaseutils" class="section level1">
+<h1>BiocBaseUtils</h1>
+<p>The <code>BiocBaseUtils</code> package provides a suite of helper
+functions designed to help developers. Currently, it covers three topics
+often encountered during the development process.</p>
+<ol style="list-style-type: decimal">
+<li>Assertions - Type checks for logical, character, and numeric
+inputs</li>
+<li>Slot replacement - Replacing the value of object slots</li>
+<li><code>show</code> method - Limiting the output of internal
+components of a class</li>
+</ol>
+</div>
+<div id="installation" class="section level1">
+<h1>Installation</h1>
+<p>Install the package directly from Bioconductor:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">requireNamespace</span>(<span class="st">&quot;BiocManager&quot;</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>    <span class="fu">install.packages</span>(<span class="st">&quot;BiocManager&quot;</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>BiocManager<span class="sc">::</span><span class="fu">install</span>(<span class="st">&quot;BiocBaseUtils&quot;</span>)</span></code></pre></div>
+</div>
+<div id="load-package" class="section level1">
+<h1>Load Package</h1>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">library</span>(BiocBaseUtils)</span></code></pre></div>
+</div>
+<div id="assertions" class="section level1">
+<h1>Assertions</h1>
+<p>We provide a number of functions that helps the developer establish
+the type of class of a particular object. These include
+<code>integer</code>, <code>numeric</code>, <code>character</code>, and
+<code>logical</code>; types often used in R / Bioconductor.</p>
+<div id="logical" class="section level2">
+<h2>Logical</h2>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="fu">isTRUEorFALSE</span>(<span class="cn">TRUE</span>)</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a><span class="fu">isTRUEorFALSE</span>(<span class="cn">FALSE</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a><span class="fu">isTRUEorFALSE</span>(<span class="cn">NA</span>, <span class="at">na.ok =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
+</div>
+<div id="character" class="section level2">
+<h2>Character</h2>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">isScalarCharacter</span>(LETTERS)</span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a><span class="co">#&gt; [1] FALSE</span></span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="fu">isScalarCharacter</span>(<span class="st">&quot;L&quot;</span>)</span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a><span class="fu">isCharacter</span>(LETTERS)</span>
+<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a><span class="fu">isCharacter</span>(<span class="cn">NA_character_</span>, <span class="at">na.ok =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a><span class="fu">isZeroOneCharacter</span>(<span class="st">&quot;&quot;</span>)</span>
+<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a><span class="co">#&gt; [1] FALSE</span></span>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a><span class="fu">isZeroOneCharacter</span>(<span class="st">&quot;&quot;</span>, <span class="at">zchar =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
+</div>
+<div id="numeric" class="section level2">
+<h2>Numeric</h2>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">isScalarInteger</span>(<span class="dv">1</span><span class="dt">L</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">isScalarInteger</span>(<span class="dv">1</span>)</span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a><span class="co">#&gt; [1] FALSE</span></span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="fu">isScalarNumber</span>(<span class="dv">1</span>)</span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; [1] TRUE</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="fu">isScalarNumber</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>)</span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; [1] FALSE</span></span></code></pre></div>
+</div>
+</div>
+<div id="slot-replacement" class="section level1">
+<h1>Slot replacement</h1>
+<p>This function is often used in packages that establish formal S4
+classes. When updating the value of a slot, one often uses the
+<code>setSlots</code> function.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="fu">setClass</span>(<span class="st">&quot;A&quot;</span>, <span class="at">representation =</span> <span class="fu">representation</span>(<span class="at">slot1 =</span> <span class="st">&quot;numeric&quot;</span>))</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>aclass <span class="ot">&lt;-</span> <span class="fu">new</span>(<span class="st">&quot;A&quot;</span>, <span class="at">slot1 =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>)</span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>aclass</span>
+<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a><span class="co">#&gt; An object of class &quot;A&quot;</span></span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a><span class="co">#&gt; Slot &quot;slot1&quot;:</span></span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a><span class="co">#&gt;  [1]  1  2  3  4  5  6  7  8  9 10</span></span></code></pre></div>
+<p>Now we use the <code>setSlots</code> function to update the values in
+the object.</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a>aclass <span class="ot">&lt;-</span> <span class="fu">setSlots</span>(aclass, <span class="at">slot1 =</span> <span class="dv">11</span><span class="sc">:</span><span class="dv">20</span>)</span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>aclass</span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a><span class="co">#&gt; An object of class &quot;A&quot;</span></span>
+<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a><span class="co">#&gt; Slot &quot;slot1&quot;:</span></span>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co">#&gt;  [1] 11 12 13 14 15 16 17 18 19 20</span></span></code></pre></div>
+<p>Note that <code>setSlots</code> provides the same functionality as
+<code>BiocGenerics:::replaceSlots</code> but is more consistent with
+Bioconductor the setter and getter language.</p>
+</div>
+<div id="show-method" class="section level1">
+<h1><code>show</code> method</h1>
+<p>The <code>selectSome</code> function allows the developer to display
+a limited amount of information from a developed class. Note that the
+use of the <code>@</code> here is due to the minimal implementation in
+the examples provided. The developer should always provide an interface
+to access the internal components of the class via an ‘accessor’
+function.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="fu">setMethod</span>(<span class="st">&quot;show&quot;</span>, <span class="at">signature =</span> <span class="st">&quot;A&quot;</span>, <span class="cf">function</span>(object) {</span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>    s1info <span class="ot">&lt;-</span> <span class="fu">getElement</span>(object, <span class="st">&quot;slot1&quot;</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">&quot;A sequence:&quot;</span>, <span class="fu">selectSome</span>(s1info))</span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a>})</span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>aclass</span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a><span class="co">#&gt; A sequence: 11 12 ... 19 20</span></span></code></pre></div>
+</div>
+<div id="contributing" class="section level1">
+<h1>Contributing</h1>
+<p><code>BiocBaseUtils</code> is a work in progress and we welcome
+contributions. There are quite a few often-used utility functions that
+are yet to be included in the package. We would like to keep the
+dependencies in this package minimal; therefore, contributions should
+mostly use base R.</p>
+</div>
+<div id="session-info" class="section level1">
+<h1>Session Info</h1>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a><span class="co">#&gt; R version 4.5.2 (2025-10-31)</span></span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a><span class="co">#&gt; Platform: x86_64-pc-linux-gnu</span></span>
+<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a><span class="co">#&gt; Running under: Ubuntu 24.04.4 LTS</span></span>
+<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a><span class="co">#&gt; Matrix products: default</span></span>
+<span id="cb9-7"><a href="#cb9-7" tabindex="-1"></a><span class="co">#&gt; BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 </span></span>
+<span id="cb9-8"><a href="#cb9-8" tabindex="-1"></a><span class="co">#&gt; LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.26.so;  LAPACK version 3.12.0</span></span>
+<span id="cb9-9"><a href="#cb9-9" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-10"><a href="#cb9-10" tabindex="-1"></a><span class="co">#&gt; locale:</span></span>
+<span id="cb9-11"><a href="#cb9-11" tabindex="-1"></a><span class="co">#&gt;  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              </span></span>
+<span id="cb9-12"><a href="#cb9-12" tabindex="-1"></a><span class="co">#&gt;  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=C              </span></span>
+<span id="cb9-13"><a href="#cb9-13" tabindex="-1"></a><span class="co">#&gt;  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   </span></span>
+<span id="cb9-14"><a href="#cb9-14" tabindex="-1"></a><span class="co">#&gt;  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 </span></span>
+<span id="cb9-15"><a href="#cb9-15" tabindex="-1"></a><span class="co">#&gt;  [9] LC_ADDRESS=C               LC_TELEPHONE=C            </span></span>
+<span id="cb9-16"><a href="#cb9-16" tabindex="-1"></a><span class="co">#&gt; [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       </span></span>
+<span id="cb9-17"><a href="#cb9-17" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-18"><a href="#cb9-18" tabindex="-1"></a><span class="co">#&gt; time zone: Etc/UTC</span></span>
+<span id="cb9-19"><a href="#cb9-19" tabindex="-1"></a><span class="co">#&gt; tzcode source: system (glibc)</span></span>
+<span id="cb9-20"><a href="#cb9-20" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-21"><a href="#cb9-21" tabindex="-1"></a><span class="co">#&gt; attached base packages:</span></span>
+<span id="cb9-22"><a href="#cb9-22" tabindex="-1"></a><span class="co">#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
+<span id="cb9-23"><a href="#cb9-23" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-24"><a href="#cb9-24" tabindex="-1"></a><span class="co">#&gt; other attached packages:</span></span>
+<span id="cb9-25"><a href="#cb9-25" tabindex="-1"></a><span class="co">#&gt; [1] BiocBaseUtils_1.12.0 BiocStyle_2.38.0    </span></span>
+<span id="cb9-26"><a href="#cb9-26" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-27"><a href="#cb9-27" tabindex="-1"></a><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
+<span id="cb9-28"><a href="#cb9-28" tabindex="-1"></a><span class="co">#&gt;  [1] digest_0.6.39       R6_2.6.1            fastmap_1.2.0      </span></span>
+<span id="cb9-29"><a href="#cb9-29" tabindex="-1"></a><span class="co">#&gt;  [4] xfun_0.56           maketools_1.3.2     cachem_1.1.0       </span></span>
+<span id="cb9-30"><a href="#cb9-30" tabindex="-1"></a><span class="co">#&gt;  [7] knitr_1.51          htmltools_0.5.9     rmarkdown_2.30     </span></span>
+<span id="cb9-31"><a href="#cb9-31" tabindex="-1"></a><span class="co">#&gt; [10] buildtools_1.0.0    lifecycle_1.0.5     cli_3.6.5          </span></span>
+<span id="cb9-32"><a href="#cb9-32" tabindex="-1"></a><span class="co">#&gt; [13] sass_0.4.10         jquerylib_0.1.4     compiler_4.5.2     </span></span>
+<span id="cb9-33"><a href="#cb9-33" tabindex="-1"></a><span class="co">#&gt; [16] sys_3.4.3           tools_4.5.2         evaluate_1.0.5     </span></span>
+<span id="cb9-34"><a href="#cb9-34" tabindex="-1"></a><span class="co">#&gt; [19] bslib_0.10.0        yaml_2.3.12         BiocManager_1.30.27</span></span>
+<span id="cb9-35"><a href="#cb9-35" tabindex="-1"></a><span class="co">#&gt; [22] jsonlite_2.0.0      rlang_1.1.7</span></span></code></pre></div>
+<p>Please report minimally reproducible bugs at our <a href="https://github.com/Bioconductor/BiocBaseUtils/issues">github issue
+page</a>.</p>
+</div></div>
+            <div class="d-none d-xl-block col-xl-2 bd-toc">
+               <ul class="section-nav">
+                  <li class="toc-entry"><ul>
+<li><a href="#biocbaseutils" id="toc-biocbaseutils">BiocBaseUtils</a></li>
+<li><a href="#installation" id="toc-installation">Installation</a></li>
+<li><a href="#load-package" id="toc-load-package">Load Package</a></li>
+<li><a href="#assertions" id="toc-assertions">Assertions</a>
+<ul>
+<li><a href="#logical" id="toc-logical">Logical</a></li>
+<li><a href="#character" id="toc-character">Character</a></li>
+<li><a href="#numeric" id="toc-numeric">Numeric</a></li>
+</ul></li>
+<li><a href="#slot-replacement" id="toc-slot-replacement">Slot
+replacement</a></li>
+<li><a href="#show-method" id="toc-show-method"><code>show</code>
+method</a></li>
+<li><a href="#contributing" id="toc-contributing">Contributing</a></li>
+<li><a href="#session-info" id="toc-session-info">Session Info</a></li>
+</ul></li>
+               </ul>
+            </div>
+         </div>
+               </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.slim.js" data-external="1"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.min.js" data-external="1"></script>
+      <script src="https://r-universe.dev/static/article.js" data-external="1"></script>
+
+      <!-- Mathjax -->
+      <!-- <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" data-external="1"></script> -->
+      <script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.0.0/tex-mml-chtml.min.js" data-external="1"></script>
+   </body>
+</html>

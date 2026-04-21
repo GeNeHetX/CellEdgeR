@@ -123,6 +123,9 @@ decode_class_vector <- function(x) {
 }
 
 read_serial_h5 <- function(path) {
+  if (!requireNamespace("hdf5r", quietly = TRUE)) {
+    stop("Package hdf5r is required to read raw serialnull .h5 slides.")
+  }
   h5 <- hdf5r::H5File$new(path, mode = "r")
   on.exit(h5$close_all(), add = TRUE)
 
@@ -204,16 +207,27 @@ collect_pvals <- function(tbl, analysis, split_name) {
       split = character(),
       analysis = character(),
       motif = character(),
+      motif_type = character(),
       p_value = numeric(),
+      fdr = numeric(),
       stringsAsFactors = FALSE
     ))
   }
+
+  fdr <- if ("FDR" %in% names(tbl)) {
+    as.numeric(tbl$FDR)
+  } else {
+    stats::p.adjust(as.numeric(tbl$PValue), method = "BH")
+  }
+  motif_type <- if ("motif_type" %in% names(tbl)) as.character(tbl$motif_type) else NA_character_
 
   data.frame(
     split = split_name,
     analysis = analysis,
     motif = tbl$motif,
+    motif_type = motif_type,
     p_value = as.numeric(tbl$PValue),
+    fdr = fdr,
     stringsAsFactors = FALSE
   )
 }

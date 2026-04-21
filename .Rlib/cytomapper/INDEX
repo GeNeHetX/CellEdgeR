@@ -1,0 +1,24 @@
+compImage               Performs channel compensation on multi-channel
+                        images
+CytoImageList-class     S4 class for list of images
+CytoImageList-manipulation
+                        Manipulating CytoImageList objects
+CytoImageList-naming    Getting and setting the channel and image names
+CytoImageList-subsetting
+                        General subsetting methods for CytoImageList
+                        objects
+cytomapperShiny         Shiny application to visualise gated cells on
+                        images
+loadImages              Read images into CytoImageList object
+measureObjects          Compute morphological and intensity features
+                        from objects on images.
+pancreasImages          Example CytoImageList object of image files
+pancreasMasks           Example CytoImageList object of segmentation
+                        masks
+pancreasSCE             Example SingleCellExperiment object
+plotCells               Function to visualize cell-level information on
+                        segmentation masks
+plotPixels              Function to visualize pixel-level information
+                        of multi-channel images
+plotting-param          Further plotting parameters for the cytomapper
+                        package

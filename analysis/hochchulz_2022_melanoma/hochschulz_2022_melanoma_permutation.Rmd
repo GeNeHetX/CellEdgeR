@@ -8,7 +8,12 @@ output:
 ```{r setup, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 
-repo_candidates <- unique(normalizePath(c(getwd(), file.path(getwd(), "..")), mustWork = FALSE))
+repo_candidates <- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), ".."),
+  file.path(getwd(), "..", ".."),
+  file.path(getwd(), "..", "..", "..")
+), mustWork = FALSE))
 repo_hit <- vapply(repo_candidates, function(path) {
   desc <- file.path(path, "DESCRIPTION")
   file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
@@ -35,9 +40,9 @@ library(dplyr)
 library(tidyr)
 
 helpers_path <- if (use_local) {
-  file.path(root_dir, "analysis", "hochschulz_2022_melanoma_shared.R")
+  file.path(root_dir, "analysis", "hochchulz_2022_melanoma", "hochschulz_2022_melanoma_shared.R")
 } else {
-  "analysis/hochschulz_2022_melanoma_shared.R"
+  "analysis/hochchulz_2022_melanoma/hochschulz_2022_melanoma_shared.R"
 }
 if (!file.exists(helpers_path)) {
   stop("Missing helper script at: ", helpers_path)
@@ -69,7 +74,7 @@ force_run <- FALSE
 ```
 
 ```{r run}
-perm_cache <- file.path(cache_dir, "hochschulz_perm.rds")
+perm_cache <- file.path(cache_dir, "hochschulz_perm_volume_filter_v3.rds")
 perm_ran <- FALSE
 
 if (!force_run && file.exists(perm_cache)) {
@@ -91,8 +96,6 @@ if (!force_run && file.exists(perm_cache)) {
       cellgraph = cperm,
       sample_df = sample_df,
       design_formula = as.formula(paste0("~ ", group_col)),
-      triplet_mode = "both",
-      strategies = c("volume", "submotif_adj"),
       verbose = FALSE
     )
     stack_layer_pvals(collect_layer_tables(res_perm, coef_name = coef_name), perm_id = i)

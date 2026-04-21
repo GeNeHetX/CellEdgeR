@@ -1,0 +1,52 @@
+Package: imcdatasets
+Version: 1.18.0
+Date: 2024-10-26
+Title: Collection of publicly available imaging mass cytometry (IMC)
+        datasets
+Description: 
+    The imcdatasets package provides access to publicly available IMC datasets.
+    IMC is a technology that enables measurement of > 40 proteins from tissue
+    sections. The generated images can be segmented to extract single cell data.
+    Datasets typically consist of three elements: a SingleCellExperiment object
+    containing single cell data, a CytoImageList object containing multichannel
+    images and a CytoImageList object containing the cell masks that were used
+    to extract the single cell data from the images.
+Authors@R: 
+    c(person("Nicolas", "Damond", role = c("aut", "cre"),
+        email = "nicolas.damond@dqbm.uzh.ch",
+        comment = c(ORCID = "0000-0003-3027-8989")),
+      person("Nils", "Eling", role = c("ctb"),
+        email = "nils.eling@dqbm.uzh.ch",
+        comment = c(ORCID = "0000-0002-4711-1176")),
+      person("Fischer", "Jana", role = c("ctb"),
+        email = "jana.fischerg@dqbm.uzh.ch",
+        comment = c(ORCID = "0000-0001-9047-8400")))
+License: GPL-3 + file LICENSE
+NeedsCompilation: no
+Depends: R (>= 4.4.0), SingleCellExperiment, SpatialExperiment,
+        cytomapper,
+Imports: methods, utils, ExperimentHub, S4Vectors, DelayedArray,
+        HDF5Array
+Suggests: BiocStyle, knitr, rmarkdown, markdown, testthat
+biocViews: ExperimentData, ExperimentHub, SingleCellData, SpatialData,
+        Homo_sapiens_Data, ImmunoOncologyData, TechnologyData,
+        PackageTypeData, ReproducibleResearch, Tissue
+VignetteBuilder: knitr
+URL: https://github.com/BodenmillerGroup/imcdatasets
+BugReports: https://github.com/BodenmillerGroup/imcdatasets/issues
+BiocType: ExperimentData
+RoxygenNote: 7.2.3
+Encoding: UTF-8
+git_url: https://git.bioconductor.org/packages/imcdatasets
+git_branch: RELEASE_3_22
+git_last_commit: 3f44c7c
+git_last_commit_date: 2025-10-29
+Repository: Bioconductor 3.22
+Date/Publication: 2025-11-04
+Packaged: 2025-11-04 16:28:17 UTC; biocbuild
+Author: Nicolas Damond [aut, cre] (ORCID:
+    <https://orcid.org/0000-0003-3027-8989>),
+  Nils Eling [ctb] (ORCID: <https://orcid.org/0000-0002-4711-1176>),
+  Fischer Jana [ctb] (ORCID: <https://orcid.org/0000-0001-9047-8400>)
+Maintainer: Nicolas Damond <nicolas.damond@dqbm.uzh.ch>
+Built: R 4.5.3; ; 2026-04-06 08:30:29 UTC; unix

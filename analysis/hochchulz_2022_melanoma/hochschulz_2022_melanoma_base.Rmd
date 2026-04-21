@@ -59,8 +59,8 @@ if (!length(helpers_hits)) {
 helpers_path <- helpers_hits[1]
 source(helpers_path)
 
-if (!"triplet_mode" %in% names(formals(CellEdgeR::motif_edger))) {
-  stop("This report requires a CellEdgeR version that supports triplet_mode.")
+if (!exists("top_motifs2", where = asNamespace("CellEdgeR"), inherits = FALSE)) {
+  stop("This report requires a volume-first CellEdgeR version with top_motifs2().")
 }
 ```
 
@@ -73,7 +73,8 @@ label_col <- "cell_type"
 image_col <- "image_name"
 x_col <- "cell_x"
 y_col <- "cell_y"
-group_col <- NULL
+group_col <- "patient_treatment_group_before_surgery"
+group_levels <- c("untreated", "ICI")
 min_cells_per_image <- 200
 max_cells_per_image <- NULL
 max_images <- NULL
@@ -90,20 +91,12 @@ base_cache <- file.path(cache_dir, "hochschulz_base.rds")
 spe <- load_hochschulz(data_type = spe_type, full_dataset = full_dataset)
 cd <- as.data.frame(colData(spe))
 
-if (is.null(group_col)) {
-  group_candidates <- c(
-    "patient_treatment_group_after_surgery",
-    "patient_treatment_group_before_surgery",
-    "patient_status_at_3months",
-    "patient_relapse",
-    "sample_tissue_type",
-    "sample_location",
-    "patient_mutation"
-  )
-  group_col <- pick_group_col(cd, group_candidates)
+if (!group_col %in% names(cd)) {
+  stop("group_col not found in colData(spe): ", group_col)
 }
-if (is.na(group_col)) {
-  stop("Set group_col explicitly after inspecting colData(spe).")
+if (!all(group_levels %in% unique(as.character(cd[[group_col]])))) {
+  stop("Requested group_levels are not all present in colData(spe): ",
+       paste(group_levels, collapse = ", "))
 }
 ```
 
@@ -136,17 +129,43 @@ group_map$sample <- as.character(group_map$sample)
 sample_df$sample <- as.character(sample_df$sample)
 sample_df <- sample_df %>% left_join(group_map, by = "sample")
 rownames(sample_df) <- sample_df$sample
-sample_df[[group_col]] <- factor(sample_df[[group_col]])
+full_group_counts <- table(sample_df[[group_col]], useNA = "ifany")
+keep_samples <- !is.na(sample_df[[group_col]]) & sample_df[[group_col]] %in% group_levels
+sample_df <- sample_df[keep_samples, , drop = FALSE]
+cells_by_sample <- cells_by_sample[rownames(sample_df)]
+cell_df <- cell_df[cell_df$image %in% rownames(sample_df), , drop = FALSE]
+sample_df[[group_col]] <- factor(as.character(sample_df[[group_col]]), levels = group_levels)
 
-missing_group <- is.na(sample_df[[group_col]])
-if (any(missing_group)) {
-  drop_samples <- rownames(sample_df)[missing_group]
-  message("Dropping samples with missing group: ", paste(drop_samples, collapse = ", "))
-  sample_df <- sample_df[!missing_group, , drop = FALSE]
-  cells_by_sample <- cells_by_sample[rownames(sample_df)]
-  cell_df <- cell_df[cell_df$image %in% rownames(sample_df), , drop = FALSE]
+group_counts <- table(sample_df[[group_col]])
+excluded_group_counts <- full_group_counts[!names(full_group_counts) %in% group_levels]
+label_levels <- sort(unique(as.character(cell_df$label)))
+label_levels_md <- paste(sprintf("`%s`", label_levels), collapse = ", ")
+group_counts_md <- paste(sprintf("`%s` = %d", names(group_counts), as.integer(group_counts)), collapse = ", ")
+excluded_counts_md <- if (length(excluded_group_counts)) {
+  paste(sprintf("`%s` = %d", names(excluded_group_counts), as.integer(excluded_group_counts)), collapse = ", ")
+} else {
+  "`none`"
 }
+design_preview <- stats::model.matrix(as.formula(paste0("~ ", group_col)), data = sample_df)
+coef_candidates <- setdiff(colnames(design_preview), "(Intercept)")
+if (length(coef_candidates) != 1) {
+  stop("Expected exactly one non-intercept coefficient after filtering to two group levels.")
+}
+coef_name <- coef_candidates[1]
+contrast_label <- paste0(levels(sample_df[[group_col]])[2], " vs ", levels(sample_df[[group_col]])[1])
 ```
+
+## Analysis Summary
+
+- Purpose: exploratory validation contrast, not a causal or predictive claim.
+- Dataset: HochSchulz 2022 Melanoma from `imcdatasets` (`full_dataset = FALSE`, one graph per `r image_col`).
+- Differential motif contrast: `r group_col`, coefficient `r coef_name` = `r contrast_label`.
+- logFC direction: positive = higher in `r levels(sample_df[[group_col]])[2]`; negative = higher in `r levels(sample_df[[group_col]])[1]`.
+- Images analyzed: `r nrow(sample_df)` (`r group_counts_md`).
+- Images excluded from this contrast: `r excluded_counts_md`.
+- Cell label column: `r label_col`.
+- Labels used (`r length(label_levels)`): `r label_levels_md`.
+- Total cells analyzed: `r nrow(cell_df)`.
 
 ```{r graphs}
 graphs <- build_cell_graphs(cells_by_sample, n_cores = n_cores, verbose = TRUE)
@@ -163,31 +182,27 @@ counts <- count_motifs_graphs(
 ```
 
 ```{r models}
-coef_name <- NULL
 res <- motif_edger(
   cellgraph = counts,
   sample_df = sample_df,
   design_formula = as.formula(paste0("~ ", group_col)),
-  triplet_mode = "both",
-  strategies = c("volume", "submotif_adj"),
   verbose = TRUE
 )
 layers_base <- collect_layer_tables(res, coef_name = coef_name)
 ```
 
 ```{r volcano}
-nodes_tbl <- layers_base$node
 edges_tbl <- layers_base$edge
-triplets_co <- layers_base$triplet_cooccurrence
-triplets_topo <- dplyr::bind_rows(layers_base$triangle, layers_base$wedge)
+motifs2_tbl <- layers_base$motifs2
+```
 
-plot_motif_volcano(
-  nodes_tbl,
-  title = "Nodes: volume offsets",
-  label_mode = "top_bottom_n",
-  label_n = 6
-)
+## Volcano Plots
 
+- Points are colored by FDR <= 0.05.
+- Positive logFC: enriched in `r levels(sample_df[[group_col]])[2]`.
+- Negative logFC: enriched in `r levels(sample_df[[group_col]])[1]`.
+
+```{r volcano_plots}
 plot_motif_volcano(
   edges_tbl,
   title = "Edges: volume offsets",
@@ -196,24 +211,17 @@ plot_motif_volcano(
 )
 
 plot_motif_volcano(
-  triplets_co,
-  title = "Triplets: co-occurrence",
-  label_mode = "top_bottom_n",
-  label_n = 6
-)
-
-plot_motif_volcano(
-  triplets_topo,
-  title = "Triplets: topology (wedge/triangle)",
+  motifs2_tbl,
+  title = "Motif2: wedges and triangles, volume offsets",
   label_mode = "top_bottom_n",
   label_n = 6
 )
 
 plot_motif_volcano_triptych(
-  triplets_topo,
+  motifs2_tbl,
   n_side = 5,
-  title = "Triplets topology: depleted vs enriched",
-  subtitle = paste0("group = ", group_col)
+  title = "Motif2: depleted vs enriched",
+  subtitle = paste0(group_col, " (", contrast_label, ")")
 )
 ```
 
@@ -228,6 +236,8 @@ base_payload <- list(
     x_col = x_col,
     y_col = y_col,
     group_col = group_col,
+    group_levels = group_levels,
+    contrast_label = contrast_label,
     min_cells_per_image = min_cells_per_image,
     max_cells_per_image = max_cells_per_image,
     max_images = max_images,
@@ -241,8 +251,14 @@ base_payload <- list(
   sample_df = sample_df,
   cells_by_sample = cells_by_sample,
   cell_df = cell_df,
+  label_levels = label_levels,
   coef_name = coef_name,
-  res = res,
+  edger = list(
+    result_sets = res$edger$result_sets,
+    statistics = res$edger$statistics,
+    offset_version = res$edger$offset_version,
+    filter = res$edger$filter
+  ),
   layers_base = layers_base
 )
 

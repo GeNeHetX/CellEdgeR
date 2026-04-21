@@ -1,0 +1,536 @@
+<!doctype html>
+<html>
+   <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <meta name="generator" content="r-universe/pandoc">
+      <meta name="author" content="Lori Shepherd">
+      
+      <title>Troubleshoot The Hubs</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" data-external="1">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" data-external="1">
+      <link rel="stylesheet" href="https://r-universe.dev/static/article-styles.css?nocache=1" data-external="1">
+   </head>
+   <body>
+      <div class="container" id="topcontainer">
+         <script>if (window.self != window.top) try {document.getElementById('topcontainer').className = "container-fluid article-in-iframe"; } catch(e) {}</script>
+
+         <div class="frontmatter">
+         <h1 class="title">Troubleshoot The Hubs</h1>
+         </div>
+
+                  <div class="row">
+            <div class="col-xl-10"><div id="overview" class="section level1">
+<h1>Overview</h1>
+<p>In spring 2019 the Hubs (<a href="https://bioconductor.org/packages/AnnotationHub/">AnnotationHub</a>/<a href="https://bioconductor.org/packages/ExperimentHub/">ExperimentHub</a>)
+upgraded their backend to utilize <a href="https://bioconductor.org/packages/BiocFileCache/">BiocFileCache</a>.
+This upgrade changed how resources were downloaded and saved. While the
+Hub code itself ensures validity, it is possible to access the
+<code>BiocFileCache</code> of resources directly without the Hub front
+ends, which opens up the possibility of having caching problems. This
+document will touch on some troubleshooting for these issues as well as
+any other frequently asked issues. If the question or answer cannot be
+found here please ask on the <a href="https://support.bioconductor.org/">Bioconductor Support Site</a>
+or on the mailing list <code>&lt;bioc-devel@r-project.org&gt;</code></p>
+</div>
+<div id="troubleshooting" class="section level1">
+<h1>Troubleshooting</h1>
+<div id="accessing-behind-a-proxy" class="section level2">
+<h2>Accessing Behind A Proxy</h2>
+<p>The ExperimentHub and AnnotationHub use CRAN package
+<code>httr2</code> functions for accessing and downloading web
+resources. This can be problematic if operating behind a proxy. You can
+pass proxy information for Hubs by setting the options like the
+following:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>proxy <span class="ot">&lt;-</span> <span class="st">&quot;http://my_user:my_password@myproxy:8080&quot;</span></span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>AnnotationHub<span class="sc">::</span><span class="fu">setAnnotationHubOption</span>(<span class="st">&quot;PROXY&quot;</span>, proxy)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="do">## or </span></span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>ExperimentHub<span class="sc">::</span><span class="fu">setExperimentHubOption</span>(<span class="st">&quot;PROXY&quot;</span>, proxy)</span></code></pre></div>
+<p>Unfortunately unlike the previously used
+<code>httr::set_config</code>, there is no option to globally set the
+proxy for httr2 requests. To get around this you can also set a system
+wide environment variable “ANNOTATION_HUB_PROXY” for AnnotationHub,
+“EXPERIMENT_HUB_PROXY” for ExperimentHub, or “HUB_PROXY” that will work
+across all Hub classes (e.g. AnnotationHub and ExperimentHub)}</p>
+</div>
+</div>
+<div id="other-configuration-options-for-resource-downloading" class="section level1">
+<h1>Other configuration options for resource downloading</h1>
+<p>As mentioned previously, There is no global option like
+<code>httr::set_config</code> to set configuration options when using
+httr2. A <code>config</code> argument may be passed to <code>[[</code>
+and <code>cache</code> functions. This argument is a R list object that
+will be passed to <code>httr2::req_options</code>. The names of the
+items should be valid curl options as defined in
+<code>curl::curl_options</code>.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>ssl_opts <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">verbose =</span> <span class="dv">1</span><span class="dt">L</span>,<span class="at">ssl_verifypeer =</span> <span class="dv">0</span><span class="dt">L</span>, <span class="at">ssl_verifyhost =</span> <span class="dv">0</span><span class="dt">L</span>)</span></code></pre></div>
+<div id="invalid-cache" class="section level2">
+<h2>Invalid Cache</h2>
+<p>An invalid cache ERROR results from a missing sqlite or index file in
+the Hub’s BiocFileCache. The Hub code needs these files in order to
+operate correctly. Rerun the Hub constructor
+(<code>AnnotationHub()</code> or <code>ExperimentHub()</code>) again. If
+you were trying to run the constructor with <code>localHub=TRUE</code>,
+you will have to run <code>localHub=FALSE</code> at least once to
+redownload the Hub sqlite file.</p>
+</div>
+<div id="corrupt-cache" class="section level2">
+<h2>Corrupt Cache</h2>
+<p>A corrupt cache ERROR results from multiple entries in the
+BiocFileCache matching a query for a particular file. This will involve
+removing one, multiple, or all entries for a file. Please see specific
+section below although all follow the same principles.</p>
+<div id="sqlite-file" class="section level3">
+<h3>sqlite file</h3>
+<p>If the sqlite file is the problematic file you should see something
+like the following (maybe be experimenthub.sqlite3 respectively)</p>
+<pre><code>&gt; ah = AnnotationHub()
+Error: Corrupt Cache: sqlite file
+  See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt cache
+  cache: /home/lori/.cache/AnnotationHub
+  filename: annotationhub.sqlite3
+</code></pre>
+<p>You will need to investigate the underlying BiocFileCache for the Hub
+and remove some or all of the files so that there is only a single entry
+for the filename. Call the BiocFileCache constructor with the path
+listed as <code>cache</code> in the ERROR message.</p>
+<pre><code>library(BiocFileCache)
+bfc &lt;- BiocFileCache(&quot;/home/lori/.cache/AnnotationHub&quot;)</code></pre>
+<p>Now we can query the BiocFileCache using the <code>filename</code> of
+the ERROR message. This shows the number of entries for the filename.
+There should only be one row</p>
+<pre><code>res &lt;- bfcquery(bfc, &quot;annotationhub.sqlite3&quot;, field=&quot;rname&quot;, exact=TRUE)
+res
+# A tibble: 2 x 10
+  rid   rname create_time access_time rpath rtype fpath last_modified_t… etag
+  &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;       &lt;chr&gt;       &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;            &lt;chr&gt;
+1 BFC1  anno… 2019-03-05… 2019-03-06… /hom… web   http… 2019-02-19 19:1… NA
+2 BFC13 anno… 2019-03-06… 2019-03-06… /hom… rela… /hom… NA               NA
+# … with 1 more variable: expires &lt;dbl&gt;
+</code></pre>
+<p>You will need to deterime if you can validate which entry should
+remain by evaluating the entries in the cache; [dplyr package][] methods
+may be useful for parsing the tibble res object.</p>
+<p>If you can identify which entry should be kept - remove the other
+entries in the cache or rename the rname by calling the BiocFileCache
+functions bfcremove or bfcupdate with the rid of the offending
+entries</p>
+<pre><code>library(dplyr)
+res %&gt;% select(rid, rname, rpath, fpath)
+
+# example of rename the rname
+bfcupdate(bfc, rids=&quot;BFC13&quot;, rname=&quot;What I am renaming the rname to&quot;)
+
+# example remove
+bfcremove(bfc, rids=&quot;BFC13&quot;)
+</code></pre>
+<p>If you cannot figure out which entry should be kept I recommend
+removing all entries so that a fresh redownload can occur. Then call the
+Hub constructor.</p>
+<pre><code>bfcremove(bfc, rids=res$rid)
+ah = AnnotationHub()</code></pre>
+<div id="redownload-of-sqlite-file" class="section level4">
+<h4>redownload of sqlite file</h4>
+<p>A force redownload of the sqlite hub file can be achieved through the
+refreshHub function. To specify which of the Bioconductor Hubs to
+redownload use the hubClass argument with either AnnotationHub or
+ExperimentHub.</p>
+<pre><code>ah2 = refreshHub(hubClass=&quot;AnnotationHub&quot;)</code></pre>
+</div>
+</div>
+<div id="index-file" class="section level3">
+<h3>index file</h3>
+<p>If the index file is the problematic file you should see something
+like the following (maybe be experimenthub.index.rds respectively)</p>
+<pre><code>&gt; ah = AnnotationHub()
+snapshotDate(): 2019-02-19
+Error: Corrupt Cache: index file
+  See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt cache
+  cache: /home/lori/.cache/AnnotationHub
+  filename: annotationhub.index.rds
+</code></pre>
+<p>You will need to investigate the underlying BiocFileCache for the Hub
+and remove some or all of the files so that there is only a single entry
+for the filename. Call the BiocFileCache constructor with the path
+listed as <code>cache</code> in the ERROR message.</p>
+<pre><code>library(BiocFileCache)
+bfc &lt;- BiocFileCache(&quot;/home/lori/.cache/AnnotationHub&quot;)</code></pre>
+<p>Now we can query the BiocFileCache using the <code>filename</code> of
+the ERROR message. This shows the number of entries for the filename.
+There should only be one row</p>
+<pre><code>res &lt;- bfcquery(bfc, &quot;annotationhub.index.rds&quot;, field=&quot;rname&quot;, exact=TRUE)
+res
+# A tibble: 2 x 10
+  rid   rname create_time access_time rpath rtype fpath last_modified_t… etag
+  &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;       &lt;chr&gt;       &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;            &lt;chr&gt;
+1 BFC2  anno… 2019-03-05… 2019-03-05… /hom… rela… 66d4…               NA NA
+2 BFC14 anno… 2019-03-06… 2019-03-06… /hom… rela… /hom…               NA NA
+# … with 1 more variable: expires &lt;dbl&gt;
+</code></pre>
+<p>You will need to deterime if you can validate which entry should
+remain by evaluating the entries in the cache; [dplyr package][] methods
+may be useful for parsing the tibble res object.</p>
+<p>If you can identify which entry should be kept - remove the other
+entries in the cache or rename the rname by calling the BiocFileCache
+functions bfcremove or bfcupdate with the rid of the offending
+entries</p>
+<pre><code>library(dplyr)
+res %&gt;% select(rid, rname, rpath, fpath)
+
+# example of rename the rname
+bfcupdate(bfc, rids=&quot;BFC14&quot;, rname=&quot;What I am renaming the rname to&quot;)
+
+# example remove
+bfcremove(bfc, rids=&quot;BFC14&quot;)
+</code></pre>
+<p>If you cannot figure out which entry should be kept I recommend
+removing all entries so that a fresh redownload can occur. Then call the
+Hub constructor.</p>
+<pre><code>bfcremove(bfc, rids=res$rid)
+ah = AnnotationHub()</code></pre>
+</div>
+<div id="resource-path" class="section level3">
+<h3>resource path</h3>
+<p>If the resource path is a problem, this indicates that there may be
+duplicate files in the cache. There may only exist at any given time one
+downloaded file path per resource as indicated by the filename schema
+“<random identifier><em><resource id><code>.  This ERROR indicates duplicate values</code></em><resource id>`</p>
+<p>The ERROR should look similar to</p>
+<pre><code>Error: Corrupt Cache: resource path
+  See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt cache
+  cache: /home/lori/.cache/AnnotationHub
+  potential duplicate files:
+499d6769cf1d_5012
+66d42a51a258_5012
+</code></pre>
+<p>You will need to investigate the underlying BiocFileCache for the Hub
+and remove some or all of the files so that there is only a single entry
+for the resource path. Call the BiocFileCache constructor with the path
+listed as <code>cache</code> in the ERROR message.</p>
+<pre><code>library(BiocFileCache)
+bfc &lt;- BiocFileCache(&quot;/home/lori/.cache/AnnotationHub&quot;)</code></pre>
+<p>Now we can query the BiocFileCache using the
+<code>duplicate files</code> of the ERROR message.</p>
+<pre><code>res &lt;- bfcquery(bfc, &quot;5012&quot;, field=&quot;rpath&quot;, exact=FALSE)
+res
+# A tibble: 2 x 10
+  rid   rname create_time access_time rpath rtype fpath last_modified_t… etag
+  &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;       &lt;chr&gt;       &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;            &lt;chr&gt;
+1 BFC3  AH50… 2019-03-05… 2019-03-05… /hom… web   http… 2014-03-28 09:2… dd0c…
+2 BFC19 dup … 2019-03-06… 2019-03-06… /hom… web   http… 2014-03-28 09:2… dd0c…
+# … with 1 more variable: expires &lt;dbl&gt;</code></pre>
+<p>You will need to deterime if you can validate which entry should
+remain by evaluating the entries in the cache; [dplyr package][] methods
+may be useful for parsing the tibble res object.</p>
+<p>If you can identify which entry should be kept - remove the other
+entries in the cache or rename the rname by calling the BiocFileCache
+functions bfcremove. If you cannot the best appropate is to remove the
+resource and redownload a new entry.</p>
+<pre><code># remove single entry
+bfcremove(bfc, rids=&quot;BFC19&quot;)
+
+# remove all
+bfcremove(bfc, rids=res$rid)</code></pre>
+<p>If the query resulted in only one entry, there is likely a file in
+your cache location that has the format similar to the entry in the
+cache and will have to be removed or renamed. An example</p>
+<pre><code>Error: Corrupt Cache: resource path
+  See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt cache
+  cache: /home/lori/.cache/AnnotationHub
+  potential duplicate files:
+45b42ba7aaa1_38317
+7a4726896632_38317</code></pre>
+<p>But when you do the query there is only one value</p>
+<pre><code>&gt; res &lt;- bfcquery(bfc, &quot;38317&quot;, field=&quot;rpath&quot;, exact=FALSE)
+&gt; res
+# A tibble: 1 x 10
+  rid   rname create_time access_time rpath rtype fpath last_modified_t… etag
+  &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;       &lt;chr&gt;       &lt;chr&gt; &lt;chr&gt; &lt;chr&gt; &lt;chr&gt;            &lt;chr&gt;
+1 BFC37 AH32… 2019-03-08… 2019-03-08… /hom… web   http… 2013-07-25 07:0… 11c3…
+# … with 1 more variable: expires &lt;dbl&gt;</code></pre>
+<p>The file path of the valid entry is</p>
+<pre><code>&gt; bfcinfo(bfc, rid=&quot;BFC37&quot;) %&gt;% dplyr::select(rpath)
+# A tibble: 1 x 1
+  rpath
+  &lt;chr&gt;
+1 /home/lori/.cache/AnnotationHub/45b42ba7aaa1_38317</code></pre>
+<p>Therefore we would want to move or rename the file
+<code>7a4726896632_38317</code>.</p>
+<pre><code>&gt; fl &lt;- file.path(bfccache(bfc), &quot;7a4726896632_38317&quot;)
+&gt; fl
+[1] &quot;/home/lori/.cache/AnnotationHub/7a4726896632_38317&quot;
+
+&gt; unlink(fl)</code></pre>
+</div>
+<div id="resource-id" class="section level3">
+<h3>resource id</h3>
+<p>If the resource id is problematic, it generally means that there are
+entries in the BiocFileCache with the same <code>rname</code>. You would
+see an ERROR similar to the following:</p>
+<pre><code>&gt; cache(ah[1:4])
+adding rname &#39;AH5015 : 5015&#39;
+Error: Corrupt Cache: resource id
+  See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt cache
+  cache: /home/lori/.cache/AnnotationHub
+  reason: not all &#39;rnames&#39; found or unique.
+</code></pre>
+<p>You will need to investigate the underlying BiocFileCache for the Hub
+and remove or rename resources so there are no duplicate rnames in the
+cache.</p>
+<pre><code>library(BiocFileCache)
+bfc &lt;- BiocFileCache(&quot;/home/lori/.cache/AnnotationHub&quot;)
+bfcinfo(bfc) %&gt;% dplyr::select(rname)</code></pre>
+<p>You can remove with <code>bfcremove</code> and can rename with
+<code>bfcupdate</code>.</p>
+</div>
+</div>
+<div id="corrupt-database" class="section level2">
+<h2>Corrupt Database</h2>
+<p>A corrupt hub database ERROR results from an invalid hub sqlite file.
+Perhaps the original download was interrupted or the file was
+overwritten.</p>
+<p>You will have to remove the currently downloaded sqlite file so it
+can be redownloaded.</p>
+<p>The output you received looked something similar to the
+following:</p>
+<pre><code>&gt; ah = AnnotationHub()
+Error: Corrupt Hub Database; See AnnotationHub&#39;s TroubleshootingTheHubs vignette section on corrupt database
+  database: &#39;/home/lori/.cache/AnnotationHub/66d467fcefa5_annotationhub.sqlite3&#39;
+  reason: missing tables
+</code></pre>
+<p>The simplest solution is to remove the file listed as the
+<code>database:</code> in the above output.</p>
+<pre><code># from the example above
+file.remove(&#39;/home/lori/.cache/AnnotationHub/66d467fcefa5_annotationhub.sqlite3&#39;)</code></pre>
+<p>Rerunning the constructor should now redownload a valid database
+object.</p>
+</div>
+<div id="cannot-retrieve-resource" class="section level2">
+<h2>Cannot retrieve resource</h2>
+<p>This occurs when using a Hub object designated to only access locally
+downloaded files (ex. hub &lt;-
+<code>AnnotationHub(localHub=TRUE)</code>) and a resource cannot be
+found in the current BiocFileCache database. The ERROR looks similar
+to</p>
+<pre><code>Error: Cannot retrieve resource
+  Rerun constructor with &#39;localHub=FALSE&#39; or exclude ID
+  Requested resource not found in local cache:
+    AH66165 : 72911</code></pre>
+<p>The options are to change the Hub object to
+<code>isLocalHub=FALSE</code> (<code>isLocalHub(hub)&lt;-FALSE</code>)
+so the file can be downloaded. If this cannot be done because of
+internet access or other issues, the resource will not be available. If
+this was part of a subset to download, remove the resource id from the
+subset.</p>
+</div>
+<div id="offline-localhub-usage" class="section level2">
+<h2>Offline localHub usage</h2>
+<p>There is a flag in the constructor <code>localHub=TRUE</code> to use
+only show previously downloaded resources. If you are using this in an
+offline setting, please also see the <a href="https://cran.r-project.org/web/packages/BiocManager/vignettes/BiocManager.html#offline-use">BiocManager
+vignette on offline use</a>. The Hubs use BiocManager::version to filter
+resources appropriate for your current version of R/Bioconductor;
+therefore the offline usage of BiocManager needs to be established. The
+error that occurs that likely needs offline set up will look similar to
+the following:</p>
+<pre><code>ExperimentHub(localHub=TRUE)
+Error: failed to connect to local data base
+database: ‘/home/user/.cache/R/ExperimentHub/24dc84dbf615e_experimenthub.sqlite3’
+reason: invalid version specification ‘Bioconductor version cannot be validated; no internet connection?’`
+</code></pre>
+</div>
+</div>
+<div id="group-hubcache-access" class="section level1">
+<h1>Group Hub/Cache Access</h1>
+<p>The situation may occur where a hub is desired to be shared across
+multiple users on a system. This presents permissions errors. To allow
+access to multiple users create a group that the users belong to and
+that the underlying hub cache belongs too. Permissions of potentially
+two files need to be altered depending on what you would like
+individuals to be able to accomplish with the hub. A read-only hub will
+require manual manipulatios of the file BiocFileCache.sqlite.LOCK so
+that the group permissions are <code>g+rw</code>. To allow users to
+download files to the shared hub, both the BiocFileCache.sqlite.LOCK
+file and the BiocFileCache.sqlite file will need group permissions to
+<code>g+rw</code>. Please google how to create a user group for your
+system of interest. To find the location of the hub cache to be able to
+change the group and file permissions, you may run the following in R
+<code>ah = AnnotationHub(); hubCache(ah)</code>. For quick reference in
+linux you will use <code>chown currentuser:newgroup</code> to change the
+group and <code>chmod</code> to change the file permissions:
+<code>chmod 660</code> or <code>chmod g+rw</code> should accomplish the
+correct permissions.</p>
+</div>
+<div id="lock-file-troubleshooting" class="section level1">
+<h1>Lock file Troubleshooting</h1>
+<p>Two issues have been commonly reported regarding the lock file.</p>
+<div id="permissions" class="section level2">
+<h2>Permissions</h2>
+<p>There could be permission ERROR regarding group and public access.
+See the previous <code>Group Cache Access</code> section.</p>
+</div>
+<div id="cannot-lock-file-no-lock-available" class="section level2">
+<h2>Cannot lock file / no lock available</h2>
+<p>This is an issue with filelock on particular systems. Particular
+partitions and non standard file systems may not support filelock. The
+solution is to use a different section of the system to create the
+cache. The easiest way to define a new cache location is by using
+environment variables.</p>
+<p>In R:</p>
+<p><code>Sys.setenv(BFC_CACHE=&lt;new cache location&gt;)</code></p>
+<p>Alternatively, you can set an environment variable globally to avoid
+having to set uniquely in each R session. Please google for specific
+instructions for setting environment variables globally for your
+particular OS system.</p>
+<p>Other common filelock implemented packages that have specific
+environment variables to control location are:</p>
+<ul>
+<li>BiocFileCache: BFC_CACHE</li>
+<li>ExperimentHub: EXPERIMENT_HUB_CACHE</li>
+<li>AnnotationHub: ANNOTATION_HUB_CACHE</li>
+<li>biomaRt: BIOMART_CACHE</li>
+</ul>
+</div>
+</div>
+<div id="default-caching-location-update" class="section level1">
+<h1>Default Caching Location Update</h1>
+<p>As of AnnotationHub version &gt; 2.23.2, the default caching location
+has changed. The default cache is now controlled by the function
+<code>tools::R_user_dir</code> instead of
+<code>rappdirs::user_cache_dir</code>. Users who have utilized the
+default AnnotationHub location, to continue using the created cache,
+must move the cache and its files to the new default location, create a
+system environment variable to point to the old location, or delete and
+start a new cache.</p>
+<div id="option-1-move-cache-and-files-to-new-location" class="section level2">
+<h2>Option 1: Move cache and files to new location</h2>
+<p>The following steps can be used to move the files to the new
+location:</p>
+<ol style="list-style-type: decimal">
+<li><p>Determine the old location by running the following in R
+<code>rappdirs::user_cache_dir(appname=&quot;AnnotationHub&quot;)</code></p></li>
+<li><p>Determine the new location by running the following in R
+<code>tools::R_user_dir(&quot;AnnotationHub&quot;, which=&quot;cache&quot;)</code></p></li>
+<li><p>Move the files to the new location. You can do this manually or
+do the following steps in R. Remember if you have a lot of cached files,
+this may take awhile.</p></li>
+</ol>
+<div class="sourceCode" id="cb28"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" tabindex="-1"></a>       <span class="co"># make sure you have permissions on the cache/files</span></span>
+<span id="cb28-2"><a href="#cb28-2" tabindex="-1"></a>       <span class="co"># use at own risk</span></span>
+<span id="cb28-3"><a href="#cb28-3" tabindex="-1"></a></span>
+<span id="cb28-4"><a href="#cb28-4" tabindex="-1"></a></span>
+<span id="cb28-5"><a href="#cb28-5" tabindex="-1"></a>    moveFiles<span class="ot">&lt;-</span><span class="cf">function</span>(package){</span>
+<span id="cb28-6"><a href="#cb28-6" tabindex="-1"></a>        olddir <span class="ot">&lt;-</span> <span class="fu">path.expand</span>(rappdirs<span class="sc">::</span><span class="fu">user_cache_dir</span>(<span class="at">appname=</span>package))</span>
+<span id="cb28-7"><a href="#cb28-7" tabindex="-1"></a>        newdir <span class="ot">&lt;-</span> tools<span class="sc">::</span><span class="fu">R_user_dir</span>(package, <span class="at">which=</span><span class="st">&quot;cache&quot;</span>)</span>
+<span id="cb28-8"><a href="#cb28-8" tabindex="-1"></a>        <span class="fu">dir.create</span>(<span class="at">path=</span>newdir, <span class="at">recursive=</span><span class="cn">TRUE</span>)</span>
+<span id="cb28-9"><a href="#cb28-9" tabindex="-1"></a>        files <span class="ot">&lt;-</span> <span class="fu">list.files</span>(olddir, <span class="at">full.names =</span><span class="cn">TRUE</span>)</span>
+<span id="cb28-10"><a href="#cb28-10" tabindex="-1"></a>        moveres <span class="ot">&lt;-</span> <span class="fu">vapply</span>(files,</span>
+<span id="cb28-11"><a href="#cb28-11" tabindex="-1"></a>        <span class="at">FUN=</span><span class="cf">function</span>(fl){</span>
+<span id="cb28-12"><a href="#cb28-12" tabindex="-1"></a>          filename <span class="ot">=</span> <span class="fu">basename</span>(fl)</span>
+<span id="cb28-13"><a href="#cb28-13" tabindex="-1"></a>          newname <span class="ot">=</span> <span class="fu">file.path</span>(newdir, filename)</span>
+<span id="cb28-14"><a href="#cb28-14" tabindex="-1"></a>          <span class="fu">file.rename</span>(fl, newname)</span>
+<span id="cb28-15"><a href="#cb28-15" tabindex="-1"></a>        },</span>
+<span id="cb28-16"><a href="#cb28-16" tabindex="-1"></a>        <span class="at">FUN.VALUE =</span> <span class="fu">logical</span>(<span class="dv">1</span>))</span>
+<span id="cb28-17"><a href="#cb28-17" tabindex="-1"></a>        <span class="cf">if</span>(<span class="fu">all</span>(moveres)) <span class="fu">unlink</span>(olddir, <span class="at">recursive=</span><span class="cn">TRUE</span>)</span>
+<span id="cb28-18"><a href="#cb28-18" tabindex="-1"></a>    }</span>
+<span id="cb28-19"><a href="#cb28-19" tabindex="-1"></a></span>
+<span id="cb28-20"><a href="#cb28-20" tabindex="-1"></a></span>
+<span id="cb28-21"><a href="#cb28-21" tabindex="-1"></a>    package<span class="ot">=</span><span class="st">&quot;AnnotationHub&quot;</span></span>
+<span id="cb28-22"><a href="#cb28-22" tabindex="-1"></a>    <span class="fu">moveFiles</span>(package)</span></code></pre></div>
+</div>
+<div id="option-2-create-a-system-environment-variable" class="section level2">
+<h2>Option 2: Create a system environment variable</h2>
+<p>A user may set the system environment variable
+<code>ANNOTATION_HUB_CACHE</code> to control the default location of the
+cache. Setting system environment variables can vary depending on the
+operating system; we suggest using google to find appropriate
+instructures per your operating system.</p>
+<p>You will want to set the variable to the results of running the
+following in R:</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" tabindex="-1"></a>       <span class="fu">path.expand</span>(rappdirs<span class="sc">::</span><span class="fu">user_cache_dir</span>(<span class="at">appname=</span><span class="st">&quot;AnnotationHub&quot;</span>))</span></code></pre></div>
+<p><strong>NOTE:</strong> R has <code>Sys.setenv</code> however that
+will only set the variable for that R session. It would not be available
+or recognized in future R sessions. It is important to set the variable
+as a global user-wide or system-wide environment variable so it persists
+in all future logins to your system.</p>
+</div>
+<div id="option-3-delete-the-old-cache" class="section level2">
+<h2>Option 3: Delete the old cache</h2>
+<p>Lastly, if a user does not care about the already existing default
+cache, the old location may be deleted to move forward with the new
+default location. This option should be used with caution. Once deleted,
+old cached resources will no longer be available and have to be
+re-downloaded.</p>
+<p>One can do this manually by navigating to the location indicated in
+the ERROR message as <code>Problematic cache:</code> and deleting the
+folder and all its content.</p>
+<p>The following can be done to delete through R code:</p>
+<p><strong>CAUTION</strong> This will remove the old cache and all
+downloaded resources. All resources will have to be re-downloaded after
+executing this code.</p>
+<div class="sourceCode" id="cb30"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" tabindex="-1"></a>    <span class="fu">library</span>(AnnotationHub)</span>
+<span id="cb30-2"><a href="#cb30-2" tabindex="-1"></a>    package <span class="ot">=</span> <span class="st">&quot;AnnotationHub&quot;</span></span>
+<span id="cb30-3"><a href="#cb30-3" tabindex="-1"></a></span>
+<span id="cb30-4"><a href="#cb30-4" tabindex="-1"></a>    oldcache <span class="ot">=</span> <span class="fu">path.expand</span>(rappdirs<span class="sc">::</span><span class="fu">user_cache_dir</span>(<span class="at">appname=</span>package))</span>
+<span id="cb30-5"><a href="#cb30-5" tabindex="-1"></a>    <span class="fu">setAnnotationHubOption</span>(<span class="st">&quot;CACHE&quot;</span>, oldcache)</span>
+<span id="cb30-6"><a href="#cb30-6" tabindex="-1"></a>    ah <span class="ot">=</span> <span class="fu">AnnotationHub</span>(<span class="at">localHub=</span><span class="cn">TRUE</span>)</span>
+<span id="cb30-7"><a href="#cb30-7" tabindex="-1"></a>    <span class="do">## removes old location and all resources</span></span>
+<span id="cb30-8"><a href="#cb30-8" tabindex="-1"></a>    <span class="fu">removeCache</span>(ah, <span class="at">ask=</span><span class="cn">FALSE</span>)</span>
+<span id="cb30-9"><a href="#cb30-9" tabindex="-1"></a></span>
+<span id="cb30-10"><a href="#cb30-10" tabindex="-1"></a>    <span class="do">## create the new default caching location</span></span>
+<span id="cb30-11"><a href="#cb30-11" tabindex="-1"></a>    newcache <span class="ot">=</span> tools<span class="sc">::</span><span class="fu">R_user_dir</span>(package, <span class="at">which=</span><span class="st">&quot;cache&quot;</span>)</span>
+<span id="cb30-12"><a href="#cb30-12" tabindex="-1"></a>    <span class="fu">setAnnotationHubOption</span>(<span class="st">&quot;CACHE&quot;</span>, newcache)</span>
+<span id="cb30-13"><a href="#cb30-13" tabindex="-1"></a>    ah <span class="ot">=</span> <span class="fu">AnnotationHub</span>()</span></code></pre></div>
+</div>
+</div></div>
+            <div class="d-none d-xl-block col-xl-2 bd-toc">
+               <ul class="section-nav">
+                  <li class="toc-entry"><ul>
+<li><a href="#overview" id="toc-overview">Overview</a></li>
+<li><a href="#troubleshooting" id="toc-troubleshooting">Troubleshooting</a>
+<ul>
+<li><a href="#accessing-behind-a-proxy" id="toc-accessing-behind-a-proxy">Accessing Behind A Proxy</a></li>
+</ul></li>
+<li><a href="#other-configuration-options-for-resource-downloading" id="toc-other-configuration-options-for-resource-downloading">Other
+configuration options for resource downloading</a>
+<ul>
+<li><a href="#invalid-cache" id="toc-invalid-cache">Invalid
+Cache</a></li>
+<li><a href="#corrupt-cache" id="toc-corrupt-cache">Corrupt
+Cache</a></li>
+<li><a href="#corrupt-database" id="toc-corrupt-database">Corrupt
+Database</a></li>
+<li><a href="#cannot-retrieve-resource" id="toc-cannot-retrieve-resource">Cannot retrieve resource</a></li>
+<li><a href="#offline-localhub-usage" id="toc-offline-localhub-usage">Offline localHub usage</a></li>
+</ul></li>
+<li><a href="#group-hubcache-access" id="toc-group-hubcache-access">Group Hub/Cache Access</a></li>
+<li><a href="#lock-file-troubleshooting" id="toc-lock-file-troubleshooting">Lock file Troubleshooting</a>
+<ul>
+<li><a href="#permissions" id="toc-permissions">Permissions</a></li>
+<li><a href="#cannot-lock-file-no-lock-available" id="toc-cannot-lock-file-no-lock-available">Cannot lock file / no lock
+available</a></li>
+</ul></li>
+<li><a href="#default-caching-location-update" id="toc-default-caching-location-update">Default Caching Location
+Update</a>
+<ul>
+<li><a href="#option-1-move-cache-and-files-to-new-location" id="toc-option-1-move-cache-and-files-to-new-location">Option 1: Move
+cache and files to new location</a></li>
+<li><a href="#option-2-create-a-system-environment-variable" id="toc-option-2-create-a-system-environment-variable">Option 2: Create
+a system environment variable</a></li>
+<li><a href="#option-3-delete-the-old-cache" id="toc-option-3-delete-the-old-cache">Option 3: Delete the old
+cache</a></li>
+</ul></li>
+</ul></li>
+               </ul>
+            </div>
+         </div>
+               </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.slim.js" data-external="1"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.min.js" data-external="1"></script>
+      <script src="https://r-universe.dev/static/article.js" data-external="1"></script>
+
+      <!-- Mathjax -->
+      <!-- <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" data-external="1"></script> -->
+      <script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.0.0/tex-mml-chtml.min.js" data-external="1"></script>
+   </body>
+</html>

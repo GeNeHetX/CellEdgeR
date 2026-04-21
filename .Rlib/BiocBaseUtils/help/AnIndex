@@ -1,0 +1,16 @@
+BiocBaseUtils-package	BiocBaseUtils-package
+askUserYesNo	askUserYesNo
+Assertions	Assertions
+BiocBaseUtils	BiocBaseUtils-package
+checkInstalled	checkInstalled
+isCharacter	Assertions
+isScalarCharacter	Assertions
+isScalarInteger	Assertions
+isScalarLogical	Assertions
+isScalarNumber	Assertions
+isTRUEorFALSE	Assertions
+isZeroOneCharacter	Assertions
+lifeCycle	lifeCycle
+replaceSlots	setSlots
+selectSome	selectSome
+setSlots	setSlots

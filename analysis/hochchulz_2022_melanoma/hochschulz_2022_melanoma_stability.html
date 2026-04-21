@@ -443,7 +443,12 @@ display: none;
 
 <pre class="r"><code>knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 
-repo_candidates &lt;- unique(normalizePath(c(getwd(), file.path(getwd(), &quot;..&quot;)), mustWork = FALSE))
+repo_candidates &lt;- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), &quot;..&quot;),
+  file.path(getwd(), &quot;..&quot;, &quot;..&quot;),
+  file.path(getwd(), &quot;..&quot;, &quot;..&quot;, &quot;..&quot;)
+), mustWork = FALSE))
 repo_hit &lt;- vapply(repo_candidates, function(path) {
   desc &lt;- file.path(path, &quot;DESCRIPTION&quot;)
   file.exists(desc) &amp;&amp; any(grepl(&quot;^Package: CellEdgeR$&quot;, readLines(desc)))
@@ -451,10 +456,10 @@ repo_hit &lt;- vapply(repo_candidates, function(path) {
 root_dir &lt;- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
 use_local &lt;- !is.na(root_dir)</code></pre>
 <p>Sample downsampling min motif counts per layer: none.</p>
-<p>Spatial cropping min motif counts per layer: edge: 55; node: 10;
-triangle: 213; triplet_cooccurrence: 216; wedge: 534.</p>
-<p>Random cell downsampling min motif counts per layer: edge: 55; node:
-10; triangle: 220; triplet_cooccurrence: 220; wedge: 549.</p>
+<p>Spatial cropping min motif counts per layer: edge: 36; motifs2: 249;
+triangle: 65; wedge: 184.</p>
+<p>Random cell downsampling min motif counts per layer: edge: 43;
+motifs2: 366; triangle: 99; wedge: 267.</p>
 
 
 

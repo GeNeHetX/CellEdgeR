@@ -8,7 +8,12 @@ output:
 ```{r setup, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 
-repo_candidates <- unique(normalizePath(c(getwd(), file.path(getwd(), "..")), mustWork = FALSE))
+repo_candidates <- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), ".."),
+  file.path(getwd(), "..", ".."),
+  file.path(getwd(), "..", "..", "..")
+), mustWork = FALSE))
 repo_hit <- vapply(repo_candidates, function(path) {
   desc <- file.path(path, "DESCRIPTION")
   file.exists(desc) && any(grepl("^Package: CellEdgeR$", readLines(desc)))
@@ -35,9 +40,9 @@ library(dplyr)
 library(tidyr)
 
 helpers_path <- if (use_local) {
-  file.path(root_dir, "analysis", "hochschulz_2022_melanoma_shared.R")
+  file.path(root_dir, "analysis", "hochchulz_2022_melanoma", "hochschulz_2022_melanoma_shared.R")
 } else {
-  "analysis/hochschulz_2022_melanoma_shared.R"
+  "analysis/hochchulz_2022_melanoma/hochschulz_2022_melanoma_shared.R"
 }
 if (!file.exists(helpers_path)) {
   stop("Missing helper script at: ", helpers_path)
@@ -64,7 +69,7 @@ include_wedge <- isTRUE(base$params$include_wedge)
 n_cores <- base$params$n_cores
 min_cells_per_image <- base$params$min_cells_per_image
 seed <- base$params$seed
-stab_cache <- file.path(cache_dir, "hochschulz_stability.rds")
+stab_cache <- file.path(cache_dir, "hochschulz_stability_volume_filter_v3.rds")
 force_run <- FALSE
 skip_compute <- !force_run && file.exists(stab_cache)
 
@@ -116,8 +121,6 @@ if (!skip_compute) {
         cellgraph = sub_counts,
         sample_df = sample_df[keep, , drop = FALSE],
         design_formula = as.formula(paste0("~ ", group_col)),
-        triplet_mode = "both",
-        strategies = c("volume", "submotif_adj"),
         verbose = FALSE
       )
       sub_layers <- collect_layer_tables(sub_res, coef_name = coef_name)
@@ -174,8 +177,6 @@ if (!skip_compute) {
         cellgraph = c_crop,
         sample_df = sub_sample_df,
         design_formula = as.formula(paste0("~ ", group_col)),
-        triplet_mode = "both",
-        strategies = c("volume", "submotif_adj"),
         verbose = FALSE
       )
       crop_layers <- collect_layer_tables(res_crop, coef_name = coef_name)
@@ -230,8 +231,6 @@ if (!skip_compute) {
         cellgraph = c_rand,
         sample_df = sub_sample_df,
         design_formula = as.formula(paste0("~ ", group_col)),
-        triplet_mode = "both",
-        strategies = c("volume", "submotif_adj"),
         verbose = FALSE
       )
       rand_layers <- collect_layer_tables(res_rand, coef_name = coef_name)

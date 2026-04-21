@@ -1,0 +1,40 @@
+Package: BiocBaseUtils
+Title: General utility functions for developing Bioconductor packages
+Version: 1.12.0
+Authors@R: c(
+  person("Marcel", "Ramos", , "marcel.ramos@sph.cuny.edu",
+    c("aut", "cre"), c(ORCID = "0000-0002-3242-0582")
+  ),
+  person("Martin", "Morgan", , "martin.morgan@roswellpark.org", "ctb"
+  ),
+  person("Hervé", "Pagès", , "hpages.on.github@gmail.com", "ctb")
+  )
+Description: The package provides utility functions related to package
+        development. These include functions that replace slots, and
+        selectors for show methods. It aims to coalesce the various
+        helper functions often re-used throughout the Bioconductor
+        ecosystem.
+Imports: methods, utils
+Depends: R (>= 4.2.0)
+Suggests: knitr, rmarkdown, BiocStyle, tinytest
+License: Artistic-2.0
+Encoding: UTF-8
+biocViews: Software, Infrastructure
+BugReports: https://www.github.com/Bioconductor/BiocBaseUtils/issues
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+VignetteBuilder: knitr
+Date: 2025-07-14
+Repository: https://bioc-release.r-universe.dev
+Date/Publication: 2025-10-29 15:17:04 UTC
+RemoteUrl: https://github.com/bioc/BiocBaseUtils
+RemoteRef: RELEASE_3_22
+RemoteSha: 756163a56486f2a5247073883b0948a033ccb637
+NeedsCompilation: no
+Packaged: 2026-03-05 07:36:28 UTC; root
+Author: Marcel Ramos [aut, cre] (ORCID:
+    <https://orcid.org/0000-0002-3242-0582>),
+  Martin Morgan [ctb],
+  Hervé Pagès [ctb]
+Maintainer: Marcel Ramos <marcel.ramos@sph.cuny.edu>
+Built: R 4.5.2; ; 2026-03-05 07:37:57 UTC; unix

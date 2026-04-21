@@ -115,7 +115,7 @@ align_layer_matrix <- function(mat, ref_rows, ref_cols, label) {
 #' using a log-log regression.
 #'
 #' @param cellgraph Output of [count_motifs_graphs()] (or [motif_edger()]) with stored offsets.
-#' @param offset_mode Offset set to use for the expectation; defaults to \code{"hier_null"}.
+#' @param offset_mode Offset set to use for the expectation; defaults to \code{"volume"}.
 #' @param layer Motif layer to plot; defaults to \code{"triangle"}.
 #' @param motif_key Optional character vector of motif keys to include; defaults to all motifs.
 #' @param log_base Logarithm base for the regression; defaults to natural log.
@@ -123,7 +123,7 @@ align_layer_matrix <- function(mat, ref_rows, ref_cols, label) {
 #' @return A \code{ggplot} object with the fitted slope annotation.
 #' @export
 plot_motif_slope_test <- function(cellgraph,
-                                  offset_mode = "hier_null",
+                                  offset_mode = "volume",
                                   layer = "triangle",
                                   motif_key = NULL,
                                   log_base = exp(1),
@@ -193,7 +193,7 @@ plot_motif_slope_test <- function(cellgraph,
 #' Plot per-sample log residuals from edge-derived offsets against total edge density.
 #'
 #' @param cellgraph Output of [count_motifs_graphs()] (or [motif_edger()]) with stored relative counts.
-#' @param offset_mode Offset set to use for residuals; defaults to \code{"hier_null"}.
+#' @param offset_mode Offset set to use for residuals; defaults to \code{"volume"}.
 #' @param layer Motif layer to plot; defaults to \code{"triangle"}.
 #' @param motif_key Optional character vector of motif keys to include; defaults to all motifs.
 #' @param log_base Logarithm base for the x-axis; defaults to 2 to match residuals.
@@ -202,7 +202,7 @@ plot_motif_slope_test <- function(cellgraph,
 #' @return A \code{ggplot} object.
 #' @export
 plot_motif_artifact_check <- function(cellgraph,
-                                      offset_mode = "hier_null",
+                                      offset_mode = "volume",
                                       layer = "triangle",
                                       motif_key = NULL,
                                       log_base = 2,
@@ -537,7 +537,12 @@ plot_sample_graph <- function(graph_obj, sample_name, max_edge_len = Inf, highli
 }
 
 resolve_plot_results_table <- function(x, result_type, coef, model, fdr_method) {
-  result_type <- match.arg(result_type, c("edges", "triplets_cooccurrence", "triplets_topology"))
+  result_type <- result_type[1]
+  result_type <- match.arg(result_type, c("edges", "motifs2", "triplets_cooccurrence", "triplets_topology"))
+  if (result_type %in% c("triplets_cooccurrence", "triplets_topology")) {
+    warning("Legacy result_type = '", result_type, "' is mapped to 'motifs2'.")
+    result_type <- "motifs2"
+  }
   model <- match.arg(model, c("full", "null"))
 
   if (is.data.frame(x)) {
@@ -545,8 +550,7 @@ resolve_plot_results_table <- function(x, result_type, coef, model, fdr_method) 
   } else if (inherits(x, "cellEdgeR_obj")) {
     out <- switch(result_type,
       edges = top_edges(x, coef = coef, model = model, n = Inf, fdr_method = fdr_method),
-      triplets_cooccurrence = top_triplets(x, strategy = "cooccurrence", coef = coef, model = model, n = Inf, fdr_method = fdr_method),
-      triplets_topology = top_triplets(x, strategy = "topology", coef = coef, model = "full", n = Inf, fdr_method = fdr_method)
+      motifs2 = top_motifs2(x, coef = coef, model = model, n = Inf, fdr_method = fdr_method)
     )
   } else {
     stop("x must be either a results data.frame or a cellEdgeR_obj.")
@@ -1010,17 +1014,16 @@ plot_motif_side_panel <- function(tbl, panel_title, label_map = NULL, side_text_
 
 #' Volcano plot for motif differential results
 #'
-#' Plot differential motif results (from [top_edges()] or [top_triplets()]) in a
+#' Plot differential motif results (from [top_edges()] or [top_motifs2()]) in a
 #' standard volcano layout, with flexible motif labeling options.
 #'
-#' @param x A results data frame (e.g., output of [top_edges()] or [top_triplets()]),
+#' @param x A results data frame (e.g., output of [top_edges()] or [top_motifs2()]),
 #'   or a `cellEdgeR_obj` containing `motif_edger()` results.
 #' @param result_type Which results to fetch when `x` is a `cellEdgeR_obj`:
-#'   `"edges"`, `"triplets_cooccurrence"`, or `"triplets_topology"`.
-#' @param coef Coefficient name or index passed to [top_edges()] / [top_triplets()]
+#'   `"edges"` or `"motifs2"`.
+#' @param coef Coefficient name or index passed to [top_edges()] / [top_motifs2()]
 #'   when `x` is a `cellEdgeR_obj`.
-#' @param model Model (`"full"` or `"null"`) used for `"edges"` and `"triplets_cooccurrence"`
-#'   when `x` is a `cellEdgeR_obj`.
+#' @param model Model (`"full"` or `"null"`) used when `x` is a `cellEdgeR_obj`.
 #' @param fdr_method Multiple testing correction method passed to `p.adjust` when needed.
 #' @param fdr_cutoff FDR threshold used for point coloring.
 #' @param logFC_cutoff Absolute logFC threshold used for point coloring.
@@ -1036,7 +1039,7 @@ plot_motif_side_panel <- function(tbl, panel_title, label_map = NULL, side_text_
 #' @export
 plot_motif_volcano <- function(
   x,
-  result_type = c("edges", "triplets_cooccurrence", "triplets_topology"),
+  result_type = c("edges", "motifs2"),
   coef = NULL,
   model = c("full", "null"),
   fdr_method = "BH",
@@ -1054,7 +1057,7 @@ plot_motif_volcano <- function(
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
     stop("Package ggplot2 is required for plotting. Install it with install.packages('ggplot2').")
   }
-  result_type <- match.arg(result_type)
+  result_type <- match.arg(result_type[1], c("edges", "motifs2", "triplets_cooccurrence", "triplets_topology"))
   model <- match.arg(model)
   label_mode <- match.arg(label_mode)
   label_top_by <- match.arg(label_top_by)
@@ -1064,9 +1067,10 @@ plot_motif_volcano <- function(
 
   if (is.null(title)) {
     title <- switch(result_type,
-      edges = "Motif volcano: node/edge",
-      triplets_cooccurrence = "Motif volcano: triplet co-occurrence",
-      triplets_topology = "Motif volcano: triplet topology"
+      edges = "Motif volcano: edges",
+      motifs2 = "Motif volcano: wedges and triangles",
+      triplets_cooccurrence = "Motif volcano: wedges and triangles",
+      triplets_topology = "Motif volcano: wedges and triangles"
     )
   }
   build_motif_volcano_plot(
@@ -1087,14 +1091,13 @@ plot_motif_volcano <- function(
 #' Create a 3-panel figure with the most depleted motifs on the left, the volcano in the middle,
 #' and the most enriched motifs on the right. Side motifs are displayed in fixed top-to-bottom order.
 #'
-#' @param x A results data frame (e.g., output of [top_edges()] or [top_triplets()]),
+#' @param x A results data frame (e.g., output of [top_edges()] or [top_motifs2()]),
 #'   or a `cellEdgeR_obj` containing `motif_edger()` results.
 #' @param result_type Which results to fetch when `x` is a `cellEdgeR_obj`:
-#'   `"edges"`, `"triplets_cooccurrence"`, or `"triplets_topology"`.
-#' @param coef Coefficient name or index passed to [top_edges()] / [top_triplets()]
+#'   `"edges"` or `"motifs2"`.
+#' @param coef Coefficient name or index passed to [top_edges()] / [top_motifs2()]
 #'   when `x` is a `cellEdgeR_obj`.
-#' @param model Model (`"full"` or `"null"`) used for `"edges"` and `"triplets_cooccurrence"`
-#'   when `x` is a `cellEdgeR_obj`.
+#' @param model Model (`"full"` or `"null"`) used when `x` is a `cellEdgeR_obj`.
 #' @param fdr_method Multiple testing correction method passed to `p.adjust` when needed.
 #' @param n_side Number of automatically selected motifs on each side.
 #' @param left_motifs Optional motif keys to force on the depleted (left) panel.
@@ -1121,7 +1124,7 @@ plot_motif_volcano <- function(
 #' @export
 plot_motif_volcano_triptych <- function(
   x,
-  result_type = c("edges", "triplets_cooccurrence", "triplets_topology"),
+  result_type = c("edges", "motifs2"),
   coef = NULL,
   model = c("full", "null"),
   fdr_method = "BH",
@@ -1146,7 +1149,7 @@ plot_motif_volcano_triptych <- function(
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
     stop("Package ggplot2 is required for plotting. Install it with install.packages('ggplot2').")
   }
-  result_type <- match.arg(result_type)
+  result_type <- match.arg(result_type[1], c("edges", "motifs2", "triplets_cooccurrence", "triplets_topology"))
   model <- match.arg(model)
   side_text_mode <- match.arg(side_text_mode)
   label_mode <- match.arg(label_mode)
@@ -1205,9 +1208,10 @@ plot_motif_volcano_triptych <- function(
 
   if (is.null(title)) {
     title <- switch(result_type,
-      edges = "Motif volcano: node/edge",
-      triplets_cooccurrence = "Motif volcano: triplet co-occurrence",
-      triplets_topology = "Motif volcano: triplet topology"
+      edges = "Motif volcano: edges",
+      motifs2 = "Motif volcano: wedges and triangles",
+      triplets_cooccurrence = "Motif volcano: wedges and triangles",
+      triplets_topology = "Motif volcano: wedges and triangles"
     )
   }
   volcano_plot <- build_motif_volcano_plot(

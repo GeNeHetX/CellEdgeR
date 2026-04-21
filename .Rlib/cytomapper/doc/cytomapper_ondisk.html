@@ -1,0 +1,376 @@
+<!doctype html>
+<html>
+   <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <meta name="generator" content="r-universe/pandoc">
+      <meta name="author" content>
+      
+      <title>On disk storage and handling of images</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" data-external="1">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" data-external="1">
+      <link rel="stylesheet" href="https://r-universe.dev/static/article-styles.css?nocache=1" data-external="1">
+   </head>
+   <body>
+      <div class="container" id="topcontainer">
+         <script>if (window.self != window.top) try {document.getElementById('topcontainer').className = "container-fluid article-in-iframe"; } catch(e) {}</script>
+
+         <div class="frontmatter">
+         <h1 class="title">On disk storage and handling of images</h1>
+         </div>
+
+                  <div class="row">
+            <div class="col-xl-10"><div id="Introduction" class="section level1">
+<h1>Introduction</h1>
+<p><em><a href="https://bioconductor.org/packages/3.22/HDF5Array">HDF5Array</a></em>
+and <em><a href="https://bioconductor.org/packages/3.22/DelayedArray">DelayedArray</a></em>
+are convenient Bioconductor packages to work with arrays “on disk”
+instead of “in memory”. The <code>cytomapper</code> package builds upon
+these tools to allow storing image data on disk. While this facilitates
+the handling of hundreds to thousand of images in parallel, little
+changes are experienced from the user perspective. Here, we explain
+which <code>cytomapper</code> function are effected by storing images on
+disk.</p>
+</div>
+<div id="ReadingData" class="section level1">
+<h1>Reading in data to disk</h1>
+<p>The <code>loadImages</code> function takes extra arguments to specify
+if images should be stored on disk (<code>on_disk</code>) and where to
+store them (<code>h5FilesPath</code>). When images should be stored for
+longer than the current R session, the <code>h5FilesPath</code> needs to
+be set to a permanent directory. The <code>HDF5Array</code> package
+provides the <code>getHDF5DumpDir</code> function, which initialize a
+temporary directory, which will be deleted once the session closes. This
+is what we will use here for demonstration purposes.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(HDF5Array)</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="co"># Define output directory</span></span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>cur_dir <span class="ot">&lt;-</span> <span class="fu">getHDF5DumpDir</span>()</span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>path.to.images <span class="ot">&lt;-</span> <span class="fu">system.file</span>(<span class="st">&quot;extdata&quot;</span>, <span class="at">package =</span> <span class="st">&quot;cytomapper&quot;</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>image.list <span class="ot">&lt;-</span> <span class="fu">loadImages</span>(path.to.images, <span class="at">pattern =</span> <span class="st">&quot;mask.tiff&quot;</span>,</span>
+<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>                             <span class="at">on_disk =</span> <span class="cn">TRUE</span>, <span class="at">h5FilesPath =</span> cur_dir)</span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a><span class="co"># Show list</span></span>
+<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>image.list</span></code></pre></div>
+<pre><code>## CytoImageList containing 3 image(s)
+## names(3): E34_mask G01_mask J02_mask 
+## Each image contains 1 channel</code></pre>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># Scale images</span></span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>image.list <span class="ot">&lt;-</span> <span class="fu">scaleImages</span>(image.list, <span class="at">value =</span> <span class="dv">2</span><span class="sc">^</span><span class="dv">16</span> <span class="sc">-</span> <span class="dv">1</span>)</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>image.list<span class="sc">$</span>E34_mask</span></code></pre></div>
+<pre><code>## &lt;100 x 100&gt; DelayedMatrix object of type &quot;double&quot;:
+##          [,1]   [,2]   [,3] ...  [,99] [,100]
+##   [1,]    824    824    824   .   1265   1265
+##   [2,]    824    824    824   .   1265      0
+##   [3,]    824    824    824   .      0      0
+##   [4,]    824    824    824   .      0   1295
+##   [5,]    824    824    824   .      0   1295
+##    ...      .      .      .   .      .      .
+##  [96,]    835      0    876   .      0      0
+##  [97,]    835      0    876   .      0      0
+##  [98,]    835      0    876   .   1293   1293
+##  [99,]      0      0    876   .   1293   1293
+## [100,]      0      0      0   .   1293   1293</code></pre>
+<p>This function call reads in the .tiff images before writing them as
+.h5 files to the indicated directory. It generates a
+<code>CytoImageList</code> object that contains <code>HDF5Array</code>
+or <code>DelayedArray</code> objects (instead of <code>Image</code>
+objects) in each slot, which references the data in the .h5 files. The
+name of the array within the .h5 file is automatically set as the
+original filename and cannot be changed easily from within R. Writing
+the images to disk is slow and therefore less efficient compared to
+keeping images in memory. However, when working with hundreds of images
+in parallel, all images remain accessible from within the R session if
+they are stored on disk. In conclusion: when working with small image
+sets it is recommended reading them into memory
+(<code>on_disk = FALSE</code>, default), while large image sets should
+be written to disk (<code>on_disk = TRUE</code>). When reading in the
+same images multiple times, the .h5 files will always be replaced.</p>
+<p>Please follow the <a href="https://bioconductor.org/packages/release/bioc/vignettes/cytomapper/inst/doc/cytomapper.html">main
+vignette</a> for instructions on how to work with multi-channel images
+in R.</p>
+</div>
+<div id="Converting" class="section level1">
+<h1>Converting from on disk to memory and back</h1>
+<p>Existing <code>CytoImageList</code> objects, which contain individual
+<code>Image</code> objects in memory can be converted into
+<code>CytoImageList</code> objects storing <code>DelayedArray</code> or
+<code>HDF5Array</code> objects on disk. For this the following function
+calls can be used:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">data</span>(<span class="st">&quot;pancreasImages&quot;</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>pancreasImages_onDisk <span class="ot">&lt;-</span> <span class="fu">CytoImageList</span>(pancreasImages,</span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>                                        <span class="at">on_disk =</span> <span class="cn">TRUE</span>, </span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a>                                        <span class="at">h5FilesPath =</span> cur_dir)</span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co"># Image object</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>pancreasImages<span class="sc">$</span>E34_imc</span></code></pre></div>
+<pre><code>## Image 
+##   colorMode    : Grayscale 
+##   storage.mode : double 
+##   dim          : 100 100 5 
+##   frames.total : 5 
+##   frames.render: 5 
+## 
+## imageData(object)[1:5,1:6,1]
+##           [,1]      [,2]         [,3]      [,4]         [,5]         [,6]
+## [1,] 2.2357869 0.2537275 1.269632e+00 0.9991982 1.990020e+00 0.000000e+00
+## [2,] 2.8855283 1.9900196 2.264642e+00 0.0000000 1.410924e+00 5.654589e-16
+## [3,] 3.4009433 0.9950098 9.950098e-01 2.1800663 4.152935e-17 1.990020e+00
+## [4,] 3.2238317 3.1750760 1.128341e+00 4.4866042 7.371460e-16 0.000000e+00
+## [5,] 0.9987666 1.9900196 2.644036e-15 0.0000000 0.000000e+00 1.523360e+00</code></pre>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="co"># HDF5Array object</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>pancreasImages_onDisk<span class="sc">$</span>E34_imc</span></code></pre></div>
+<pre><code>## &lt;100 x 100 x 5&gt; HDF5Array object of type &quot;double&quot;:
+## ,,H3
+##             [,1]      [,2]      [,3] ...     [,99]    [,100]
+##   [1,] 2.2357869 0.2537275 1.2696325   .  7.265561  1.975094
+##   [2,] 2.8855283 1.9900196 2.2646422   .  2.985029  2.885528
+##    ...         .         .         .   .         .         .
+##  [99,]  2.985029  3.636569 22.976585   . 25.371881 12.045588
+## [100,]  3.061645  2.985029  1.990020   . 13.353615  5.636652
+## 
+## ...
+## 
+## ,,CDH
+##             [,1]      [,2]      [,3] ...    [,99]   [,100]
+##   [1,]  0.940284 19.651394 43.284626   . 2.704231 0.000000
+##   [2,]  8.393239 29.353861 22.249359   . 7.345311 5.781126
+##    ...         .         .         .   .        .        .
+##  [99,] 0.9897148 7.3378549 0.0000000   . 0.000000 1.667201
+## [100,] 5.8091230 2.2515676 1.9969171   . 4.344125 0.000000</code></pre>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="co"># Seed of HDF5Array object</span></span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a><span class="fu">seed</span>(pancreasImages_onDisk<span class="sc">$</span>E34_imc)</span></code></pre></div>
+<pre><code>## An object of class &quot;HDF5ArraySeed&quot;
+## Slot &quot;filepath&quot;:
+## [1] &quot;/tmp/Rtmprj52wP/HDF5Array_dump/E34_imc.h5&quot;
+## 
+## Slot &quot;name&quot;:
+## [1] &quot;/E34_imc&quot;
+## 
+## Slot &quot;as_sparse&quot;:
+## [1] FALSE
+## 
+## Slot &quot;type&quot;:
+## [1] NA
+## 
+## Slot &quot;dim&quot;:
+## [1] 100 100   5
+## 
+## Slot &quot;chunkdim&quot;:
+## [1] 100 100   5
+## 
+## Slot &quot;first_val&quot;:
+## [1] 2.235787</code></pre>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="co"># Size in memory</span></span>
+<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a><span class="fu">format</span>(<span class="fu">object.size</span>(pancreasImages), <span class="at">units =</span> <span class="st">&quot;auto&quot;</span>)</span></code></pre></div>
+<pre><code>## [1] &quot;1.2 Mb&quot;</code></pre>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a><span class="fu">format</span>(<span class="fu">object.size</span>(pancreasImages_onDisk), <span class="at">units =</span> <span class="st">&quot;auto&quot;</span>)</span></code></pre></div>
+<pre><code>## [1] &quot;11.8 Kb&quot;</code></pre>
+<p>Images can also be moved back to in memory representation:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" tabindex="-1"></a>pancreasImages_inMemory <span class="ot">&lt;-</span> <span class="fu">CytoImageList</span>(pancreasImages_onDisk,</span>
+<span id="cb15-2"><a href="#cb15-2" tabindex="-1"></a>                                        <span class="at">on_disk =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb15-3"><a href="#cb15-3" tabindex="-1"></a></span>
+<span id="cb15-4"><a href="#cb15-4" tabindex="-1"></a><span class="co"># Compare the image data to the original representation</span></span>
+<span id="cb15-5"><a href="#cb15-5" tabindex="-1"></a><span class="fu">identical</span>(<span class="fu">as.list</span>(pancreasImages_inMemory), <span class="fu">as.list</span>(pancreasImages))</span></code></pre></div>
+<pre><code>## [1] TRUE</code></pre>
+</div>
+<div id="Functionality" class="section level1">
+<h1>Effects on package functionality</h1>
+<p>While most functions of the <code>cytomapper</code> package natively
+support images stored on disk, there are three exceptions: the
+<code>normalize</code>, <code>setChannels</code> and
+<code>mergeChannels</code> functions.</p>
+<p>The <code>normalize</code> function will store the normalized images
+as a second dataset in the same .h5 file as the original data.</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" tabindex="-1"></a><span class="co"># Size of object in memory</span></span>
+<span id="cb17-2"><a href="#cb17-2" tabindex="-1"></a><span class="fu">format</span>(<span class="fu">object.size</span>(pancreasImages_onDisk), <span class="at">units =</span> <span class="st">&quot;auto&quot;</span>)</span></code></pre></div>
+<pre><code>## [1] &quot;11.8 Kb&quot;</code></pre>
+<div class="sourceCode" id="cb19"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" tabindex="-1"></a><span class="co"># Size of object on disk in kB</span></span>
+<span id="cb19-2"><a href="#cb19-2" tabindex="-1"></a><span class="fu">file.info</span>(<span class="fu">paste0</span>(cur_dir, <span class="st">&quot;/E34_imc.h5&quot;</span>))[,<span class="st">&quot;size&quot;</span>] <span class="sc">/</span> <span class="dv">1000</span></span></code></pre></div>
+<pre><code>## [1] 148.147</code></pre>
+<div class="sourceCode" id="cb21"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" tabindex="-1"></a>pancreasImages_norm <span class="ot">&lt;-</span> <span class="fu">normalize</span>(pancreasImages_onDisk)</span>
+<span id="cb21-2"><a href="#cb21-2" tabindex="-1"></a></span>
+<span id="cb21-3"><a href="#cb21-3" tabindex="-1"></a><span class="fu">seed</span>(pancreasImages_norm<span class="sc">$</span>E34_imc)</span></code></pre></div>
+<pre><code>## An object of class &quot;HDF5ArraySeed&quot;
+## Slot &quot;filepath&quot;:
+## [1] &quot;/tmp/Rtmprj52wP/HDF5Array_dump/E34_imc.h5&quot;
+## 
+## Slot &quot;name&quot;:
+## [1] &quot;/E34_imc_norm&quot;
+## 
+## Slot &quot;as_sparse&quot;:
+## [1] FALSE
+## 
+## Slot &quot;type&quot;:
+## [1] NA
+## 
+## Slot &quot;dim&quot;:
+## [1] 100 100   5
+## 
+## Slot &quot;chunkdim&quot;:
+## [1] 100 100   5
+## 
+## Slot &quot;first_val&quot;:
+## [1] 0.01235403</code></pre>
+<div class="sourceCode" id="cb23"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" tabindex="-1"></a><span class="co"># Size of object in memory</span></span>
+<span id="cb23-2"><a href="#cb23-2" tabindex="-1"></a><span class="fu">format</span>(<span class="fu">object.size</span>(pancreasImages_norm), <span class="at">units =</span> <span class="st">&quot;auto&quot;</span>)</span></code></pre></div>
+<pre><code>## [1] &quot;11.8 Kb&quot;</code></pre>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" tabindex="-1"></a><span class="co"># Size of object on disk in kB</span></span>
+<span id="cb25-2"><a href="#cb25-2" tabindex="-1"></a><span class="fu">file.info</span>(<span class="fu">paste0</span>(cur_dir, <span class="st">&quot;/E34_imc.h5&quot;</span>))[,<span class="st">&quot;size&quot;</span>] <span class="sc">/</span> <span class="dv">1000</span></span></code></pre></div>
+<pre><code>## [1] 414.936</code></pre>
+<p>As we can see, the size in memory does not increase when normalizing
+images. However, the size on disk increases since a second, normalized
+dataset is stored in the .h5 file. The original dataset can be
+overwritten by setting <code>overwrite = TRUE</code> to save space on
+disk. This will however break the links to the original data in all R
+objects. It is therefore recommended leaving the default
+<code>overwrite = FALSE</code>. Furthermore, the normalization of images
+stored on disk is slower compared to normalizing images in memory since
+normalized images need to be written to disk.</p>
+<p>The <code>setChannels</code> function replaces the same channels in
+all images by a user defined channel. There is no problem with this when
+keeping images in memory. However, the <code>DelayedArray</code>
+framework stores the replacement value in subassignemt operations in
+memory. This means that when using the <code>setChannels</code>
+function, the size of the object increases in memory usage:</p>
+<div class="sourceCode" id="cb27"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" tabindex="-1"></a>cur_Images1 <span class="ot">&lt;-</span> pancreasImages_onDisk</span>
+<span id="cb27-2"><a href="#cb27-2" tabindex="-1"></a>cur_Images2 <span class="ot">&lt;-</span> <span class="fu">getChannels</span>(pancreasImages_onDisk, <span class="dv">2</span>)</span>
+<span id="cb27-3"><a href="#cb27-3" tabindex="-1"></a><span class="fu">channelNames</span>(cur_Images2) <span class="ot">&lt;-</span> <span class="st">&quot;CD99_2&quot;</span></span>
+<span id="cb27-4"><a href="#cb27-4" tabindex="-1"></a></span>
+<span id="cb27-5"><a href="#cb27-5" tabindex="-1"></a><span class="fu">setChannels</span>(cur_Images1, <span class="dv">1</span>) <span class="ot">&lt;-</span> cur_Images2</span>
+<span id="cb27-6"><a href="#cb27-6" tabindex="-1"></a><span class="fu">format</span>(<span class="fu">object.size</span>(cur_Images1), <span class="at">units =</span> <span class="st">&quot;auto&quot;</span>)</span></code></pre></div>
+<pre><code>## [1] &quot;27.2 Kb&quot;</code></pre>
+<p>The <code>mergeChannels</code> function merges multiple user-defined
+channels. As this operation creates a completely new image object, one
+needs to store the merged channels in a different location:</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" tabindex="-1"></a>channels1 <span class="ot">&lt;-</span> <span class="fu">getChannels</span>(pancreasImages_onDisk, <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>)</span>
+<span id="cb29-2"><a href="#cb29-2" tabindex="-1"></a>channels2 <span class="ot">&lt;-</span> <span class="fu">getChannels</span>(pancreasImages_onDisk, <span class="dv">3</span><span class="sc">:</span><span class="dv">4</span>)</span>
+<span id="cb29-3"><a href="#cb29-3" tabindex="-1"></a></span>
+<span id="cb29-4"><a href="#cb29-4" tabindex="-1"></a><span class="fu">dir.create</span>(<span class="fu">file.path</span>(cur_dir, <span class="st">&quot;test&quot;</span>))</span>
+<span id="cb29-5"><a href="#cb29-5" tabindex="-1"></a>cur_path_2 <span class="ot">&lt;-</span> <span class="fu">file.path</span>(cur_dir, <span class="st">&quot;test&quot;</span>)</span>
+<span id="cb29-6"><a href="#cb29-6" tabindex="-1"></a></span>
+<span id="cb29-7"><a href="#cb29-7" tabindex="-1"></a>channels3 <span class="ot">&lt;-</span> <span class="fu">mergeChannels</span>(channels1, channels2,</span>
+<span id="cb29-8"><a href="#cb29-8" tabindex="-1"></a>                            <span class="at">h5FilesPath =</span> cur_path_2)</span>
+<span id="cb29-9"><a href="#cb29-9" tabindex="-1"></a></span>
+<span id="cb29-10"><a href="#cb29-10" tabindex="-1"></a><span class="fu">seed</span>(channels3<span class="sc">$</span>E34_imc)</span></code></pre></div>
+<pre><code>## An object of class &quot;HDF5ArraySeed&quot;
+## Slot &quot;filepath&quot;:
+## [1] &quot;/tmp/Rtmprj52wP/HDF5Array_dump/test/E34_imc.h5&quot;
+## 
+## Slot &quot;name&quot;:
+## [1] &quot;/E34_imc&quot;
+## 
+## Slot &quot;as_sparse&quot;:
+## [1] FALSE
+## 
+## Slot &quot;type&quot;:
+## [1] NA
+## 
+## Slot &quot;dim&quot;:
+## [1] 100 100   4
+## 
+## Slot &quot;chunkdim&quot;:
+## [1] 100 100   4
+## 
+## Slot &quot;first_val&quot;:
+## [1] 2.235787</code></pre>
+</div>
+<div id="session-info" class="section level1 unnumbered">
+<h1 class="unnumbered">Session info</h1>
+<pre><code>## R version 4.5.2 (2025-10-31)
+## Platform: x86_64-pc-linux-gnu
+## Running under: Ubuntu 24.04.4 LTS
+## 
+## Matrix products: default
+## BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 
+## LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.26.so;  LAPACK version 3.12.0
+## 
+## locale:
+##  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+##  [3] LC_TIME=en_US.UTF-8        LC_COLLATE=C              
+##  [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+##  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+##  [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+## [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+## 
+## time zone: Etc/UTC
+## tzcode source: system (glibc)
+## 
+## attached base packages:
+## [1] stats4    stats     graphics  grDevices utils     datasets  methods  
+## [8] base     
+## 
+## other attached packages:
+##  [1] HDF5Array_1.38.0            h5mread_1.2.1              
+##  [3] rhdf5_2.54.1                DelayedArray_0.36.0        
+##  [5] SparseArray_1.10.8          S4Arrays_1.10.1            
+##  [7] abind_1.4-8                 Matrix_1.7-4               
+##  [9] ggplot2_4.0.2               cowplot_1.2.0              
+## [11] cytomapper_1.22.0           SingleCellExperiment_1.32.0
+## [13] SummarizedExperiment_1.40.0 Biobase_2.70.0             
+## [15] GenomicRanges_1.62.1        Seqinfo_1.0.0              
+## [17] IRanges_2.44.0              S4Vectors_0.48.0           
+## [19] BiocGenerics_0.56.0         generics_0.1.4             
+## [21] MatrixGenerics_1.22.0       matrixStats_1.5.0          
+## [23] EBImage_4.52.0              BiocStyle_2.38.0           
+## 
+## loaded via a namespace (and not attached):
+##  [1] bitops_1.0-9             gridExtra_2.3            rlang_1.1.7             
+##  [4] magrittr_2.0.4           svgPanZoom_0.3.4         shinydashboard_0.7.3    
+##  [7] otel_0.2.0               compiler_4.5.2           png_0.1-8               
+## [10] systemfonts_1.3.1        fftwtools_0.9-11         vctrs_0.7.1             
+## [13] pkgconfig_2.0.3          SpatialExperiment_1.20.0 fastmap_1.2.0           
+## [16] magick_2.9.1             XVector_0.50.0           labeling_0.4.3          
+## [19] promises_1.5.0           rmarkdown_2.30           ggbeeswarm_0.7.3        
+## [22] xfun_0.56                cachem_1.1.0             jsonlite_2.0.0          
+## [25] later_1.4.7              rhdf5filters_1.22.0      Rhdf5lib_1.32.0         
+## [28] BiocParallel_1.44.0      jpeg_0.1-11              tiff_0.1-12             
+## [31] terra_1.8-93             parallel_4.5.2           R6_2.6.1                
+## [34] bslib_0.10.0             RColorBrewer_1.1-3       jquerylib_0.1.4         
+## [37] Rcpp_1.1.1               knitr_1.51               httpuv_1.6.16           
+## [40] nnls_1.6                 tidyselect_1.2.1         yaml_2.3.12             
+## [43] viridis_0.6.5            codetools_0.2-20         lattice_0.22-9          
+## [46] tibble_3.3.1             shiny_1.13.0             withr_3.0.2             
+## [49] S7_0.2.1                 evaluate_1.0.5           pillar_1.11.1           
+## [52] BiocManager_1.30.27      sp_2.2-1                 RCurl_1.98-1.17         
+## [55] scales_1.4.0             xtable_1.8-8             glue_1.8.0              
+## [58] maketools_1.3.2          tools_4.5.2              sys_3.4.3               
+## [61] locfit_1.5-9.12          buildtools_1.0.0         grid_4.5.2              
+## [64] raster_3.6-32            beeswarm_0.4.0           vipor_0.4.7             
+## [67] cli_3.6.5                textshaping_1.0.4        viridisLite_0.4.3       
+## [70] svglite_2.2.2            dplyr_1.2.0              gtable_0.3.6            
+## [73] sass_0.4.10              digest_0.6.39            rjson_0.2.23            
+## [76] htmlwidgets_1.6.4        farver_2.1.2             htmltools_0.5.9         
+## [79] lifecycle_1.0.5          mime_0.13</code></pre>
+</div>
+<div id="references" class="section level1">
+<h1>References</h1>
+</div></div>
+            <div class="d-none d-xl-block col-xl-2 bd-toc">
+               <ul class="section-nav">
+                  <li class="toc-entry"><ul>
+<li><a href="#Introduction" id="toc-Introduction">Introduction</a></li>
+<li><a href="#ReadingData" id="toc-ReadingData">Reading in data to
+disk</a></li>
+<li><a href="#Converting" id="toc-Converting">Converting from on disk to
+memory and back</a></li>
+<li><a href="#Functionality" id="toc-Functionality">Effects on package
+functionality</a></li>
+<li><a href="#session-info" id="toc-session-info">Session info</a></li>
+<li><a href="#references" id="toc-references">References</a></li>
+</ul></li>
+               </ul>
+            </div>
+         </div>
+               </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.slim.js" data-external="1"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.min.js" data-external="1"></script>
+      <script src="https://r-universe.dev/static/article.js" data-external="1"></script>
+
+      <!-- Mathjax -->
+      <!-- <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" data-external="1"></script> -->
+      <script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.0.0/tex-mml-chtml.min.js" data-external="1"></script>
+   </body>
+</html>

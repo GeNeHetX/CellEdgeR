@@ -1,0 +1,37 @@
+Package: EBImage
+Version: 4.52.0
+Title: Image processing and analysis toolbox for R
+Encoding: UTF-8
+Author: Andrzej Oleś, Gregoire Pau, Mike Smith, Oleg Sklyar, Wolfgang
+        Huber, with contributions from Joseph Barry and Philip A.
+        Marais
+Maintainer: Andrzej Oleś <andrzej.oles@gmail.com>
+Depends: methods
+Imports: BiocGenerics (>= 0.7.1), graphics, grDevices, stats, abind,
+        tiff, jpeg, png, locfit, fftwtools (>= 0.9-7), utils,
+        htmltools, htmlwidgets, RCurl
+Suggests: BiocStyle, digest, knitr, rmarkdown, shiny
+Description: EBImage provides general purpose functionality for image
+        processing and analysis. In the context of (high-throughput)
+        microscopy-based cellular assays, EBImage offers tools to
+        segment cells and extract quantitative cellular descriptors.
+        This allows the automation of such tasks using the R
+        programming language and facilitates the use of other tools in
+        the R environment for signal processing, statistical modeling,
+        machine learning and visualization with image data.
+License: LGPL
+LazyLoad: true
+biocViews: Visualization
+VignetteBuilder: knitr
+URL: https://github.com/aoles/EBImage
+BugReports: https://github.com/aoles/EBImage/issues
+Config/pak/sysreqs: libfftw3-dev make libjpeg-dev libpng-dev
+        libtiff-dev
+Repository: https://bioc-release.r-universe.dev
+Date/Publication: 2025-10-29 13:57:46 UTC
+RemoteUrl: https://github.com/bioc/EBImage
+RemoteRef: RELEASE_3_22
+RemoteSha: 6f9e0ab7863da69645a0c341a7a1e4aba631132b
+NeedsCompilation: yes
+Packaged: 2026-02-20 05:58:54 UTC; root
+Built: R 4.5.2; aarch64-apple-darwin20; 2026-02-20 06:00:39 UTC; unix

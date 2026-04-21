@@ -11,15 +11,23 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
 ```
 
-# Brief intro
+# Brief Intro
 
-CellEdgeR builds Delaunay graphs from spatial cell coordinates, counts cell-type
-motifs (nodes, edges, triangles, and optional wedges), and tests for differential
-abundance using edgeR with graph-aware offsets.
+CellEdgeR builds Delaunay graphs from spatial cell coordinates, counts
+label-based motifs, and tests differential abundance with edgeR using
+Chung-Lu-style volume offsets. The default and primary statistical model is
+volume based.
 
-# Quick start
+CellEdgeR tests two result sets:
 
-Just want the few lines of code to run the analysis?
+- `edges`: edge motifs extracted with `top_edges()`.
+- `motifs2`: wedge and triangle motifs extracted with `top_motifs2()`.
+
+Node counts are used internally for exposure and submotif values, but nodes are
+not tested. Wedges and triangles are kept separate; there is no merged `TP_*`
+triplet test.
+
+# Quick Start
 
 ```{r quick-start}
 library(CellEdgeR)
@@ -35,112 +43,95 @@ cellgraph <- count_motifs_graphs(cellgraph, max_edge_len = 50, include_wedge = T
 cellgraph <- motif_edger(
   cellgraph,
   sample_df = metadata_df,
-  design_formula = "~ condition",
-  strategies = c("volume", "submotif_adj"),
-  triplet_mode = "closure"
+  design_formula = "~ condition"
 )
 
 top_edges(cellgraph, coef = "conditiontreated")
-top_triplets(cellgraph, strategy = "topology", coef = "conditiontreated")
+top_motifs2(cellgraph, coef = "conditiontreated")
 ```
 
-# Methodology (volume, co-occurrence, topology)
-
-This section is a technical note aimed at readers who want to understand the
-statistical model and its assumptions.
-
-## Delaunay graphs and motif layers
+# Motif Layers
 
 For each sample, CellEdgeR builds a Delaunay triangulation on the 2D coordinates
 and treats unique edges as candidate adjacency. Optional pruning by
-`max_edge_len` removes long edges before counting motifs. Motifs are counted on
-the pruned graph and stored by layer:
+`max_edge_len` removes long edges before counting motifs.
 
-- Nodes: `N_<label>`
-- Edges: `E_<label1>_<label2>` (unordered)
-- Triangles: `T_<label1>_<label2>_<label3>` (unordered)
-- Wedges: `W_<label1>_<label2>_<label3>` (centered, optional)
-- Triplets (merged): `TP_<label1>_<label2>_<label3>` (unordered)
+Motifs are counted by label:
+
+- Nodes: `N_<label>`, used internally but not tested by `motif_edger()`.
+- Edges: `E_<label1>_<label2>`, unordered.
+- Triangles: `T_<label1>_<label2>_<label3>`, unordered.
+- Wedges: `W_<center>_<leaf1>_<leaf2>`, centered and optional.
 
 Counts are per sample, yielding a motif-by-sample matrix for each layer.
 
-## Volume exposure and offsets
+# Volume Offsets
 
-The volume approach uses label-specific "volumes" to represent how much of the
-graph is available for each label in each sample. Volumes are computed from node
-degrees in the Delaunay graph: for each label, sum the degrees of nodes with that
-label. Let `2m` be twice the number of edges in the sample.
+The volume approach uses label-specific degree volumes to represent how much of
+the graph is available for each label in each sample. For a label, the volume is
+the sum of degrees of cells with that label. Let `2m` be twice the number of
+edges in the sample.
 
-Offsets are the log expected counts under a Chung-Lu style random graph that
-preserves these volumes:
+Offsets are log expected counts under a Chung-Lu-style graph with preserved
+label volumes:
 
-- Nodes: `log(total cells)` with optional TMM correction on the node layer.
-- Edges: `log(vol_a) + log(vol_b) - log(2m)`
-- Triangles: `log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)`
-- Wedges: centered triples, using `center_pairs` (sum of degree*(degree-1) for the
-  center label) and leaf volumes.
+- Edges: `log(vol_a) + log(vol_b) - log(2m)`, with a `-log(2)` correction for same-label unordered pairs.
+- Triangles: `log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)`, plus an unordered-label multiplicity correction.
+- Wedges: center exposure from `sum(degree * (degree - 1))` for the center label, leaf-label volumes, and an equal-leaf correction.
 
-A small `offset_pseudo` is used to avoid log(0).
+The offsets use a small `offset_pseudo` to avoid `log(0)`.
 
-## Volume model
+# Differential Model
 
-For each motif, counts are modeled with a negative binomial GLM (edgeR QL) with
-the volume offset. The design matrix comes from `design_formula` and can include
-multiple covariates. The resulting logFC is interpreted as change in motif rate
-relative to the volume baseline.
+`motif_edger()` stacks edge, wedge, and triangle counts and fits a single edgeR
+quasi-likelihood negative-binomial GLM with volume offsets. The design matrix
+comes from `design_formula` and can include multiple covariates:
 
-Use `top_edges()` to extract node/edge results from this model.
+```{r edger}
+cellgraph <- motif_edger(
+  cellgraph,
+  sample_df = sample_df,
+  design_formula = "~ condition + batch"
+)
 
-## Co-occurrence triplets (merged)
+edges_tbl <- top_edges(cellgraph, coef = "conditiontreated")
+motifs2_tbl <- top_motifs2(cellgraph, coef = "conditiontreated")
+```
 
-The co-occurrence strategy applies:
+The logFC is interpreted as a differential motif rate after correcting for the
+volume exposure. The p-value is a model coefficient test, not a direct test of
+raw counts or normalized-count medians.
 
-- Volume offsets for 3-node motifs with `triplet_mode = "merge"` to collapse
-  wedges + triangles into unordered triplets.
+Before fitting, CellEdgeR applies `edgeR::filterByExpr()` to the stacked
+edge/wedge/triangle count matrix. This is the standard edgeR low-expression
+filter and prevents motifs observed in too few samples, including one-sample
+spikes, from entering the multiple-testing table. The filtering summary is
+stored in `cellgraph$edger$filter`.
 
-Use `top_triplets(..., strategy = "cooccurrence")` after running
-`motif_edger(..., triplet_mode = "merge")`.
+# Motif2 Submotif Columns
 
-## Topology triplets (closure)
+`top_motifs2()` returns wedges and triangles in one table. It also adds the edge
+submotifs implied by each three-label motif:
 
-Topology modeling uses the submotif-adjusted strategy with `triplet_mode = "closure"`.
-Triangles are adjusted by total triples (open+closed) and wedges by edge-derived
-covariates (edge-force), while retaining volume offsets as the baseline exposure. Use
-`top_triplets(..., strategy = "topology")` to extract these results.
+- `edge12`, `edge13`, `edge23`.
+- `edge12_logFC`, `edge13_logFC`, `edge23_logFC`.
+- `edge12_PValue`, `edge13_PValue`, `edge23_PValue`.
+- `edge12_FDR`, `edge13_FDR`, `edge23_FDR`.
+- `submotif_min_FDR` and `submotif_max_abs_logFC`.
 
-## Assumptions
+For wedges, label 1 is the center. `edge12` and `edge13` are the center-leaf
+edges, while `edge23` is the leaf-leaf closing edge.
 
-- Delaunay edges are a reasonable proxy for spatial adjacency in each sample.
-- Pruning by `max_edge_len` removes long-range edges without removing meaningful
-  local adjacency.
-- Cell labels are accurate and consistent across samples.
-- Samples are independent, and motif counts follow a negative binomial model.
-- The volume offsets approximate expected counts under a graph with preserved
-  label volumes (degree sums) and total edge count.
-
-# User guide
-
-## Concepts and terminology
-
-- Sample: a single spatial dataset (one slide, region, or image).
-- cellgraph: the main object produced by `build_cell_graphs()` and augmented by
-  `count_motifs_graphs()` and `motif_edger()`.
-- Motif: a node, edge, triangle, or wedge defined by labels and counted per
-  sample.
-- Offset: a log expected count used in the GLM to normalize for exposure.
-- Strategy: co-occurrence (`volume`, merge) or topology (submotif-adjusted, closure).
-- Motif space: the combinatorial set of label-based motifs; see `motif_space_size()`.
-
-## Required inputs
+# Required Inputs
 
 1. `cells_by_sample`: a named list of data frames. Each data frame must have:
-   - Column 1: numeric x coordinate
-   - Column 2: numeric y coordinate
-   - Column 3: label (character or factor)
+   - Column 1: numeric x coordinate.
+   - Column 2: numeric y coordinate.
+   - Column 3: label, character or factor.
 2. `sample_df`: a data frame with one row per sample and row names equal to
    `names(cells_by_sample)`.
 
-## Build graphs and count motifs
+# Build Graphs And Count Motifs
 
 ```{r build-and-count}
 cellgraph <- build_cell_graphs(cells_by_sample, n_cores = 4)
@@ -152,7 +143,7 @@ cellgraph <- count_motifs_graphs(
 )
 ```
 
-## Choose a Delaunay cutoff (max_edge_len)
+# Choose A Delaunay Cutoff
 
 Inspect the edge-length distribution and choose a cutoff that removes the long
 tail while keeping local neighbors. The cutoff is in the same units as your
@@ -169,51 +160,16 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
   ggplot2::theme_minimal()
 ```
 
-## Differential analysis and multivariate designs
+# Motif Space Size
 
-```{r edger}
-cellgraph <- motif_edger(
-  cellgraph,
-  sample_df = sample_df,
-  design_formula = "~ condition + batch",
-  strategies = c("volume", "submotif_adj"),
-  triplet_mode = "closure"
-)
-
-top_edges(cellgraph, coef = "conditiontreated")
-top_triplets(cellgraph, strategy = "topology", coef = "conditiontreated")
-```
-
-The formula can include multiple covariates, interactions, or continuous
-variables (for example `~ condition + batch + age`).
-
-## Triplet handling
-
-For 3-node motifs, you can choose how wedges and triangles are handled:
-
-- `triplet_mode = "merge"`: wedges and triangles are collapsed into unordered triplet motifs (tests overall triplet abundance).
-- `triplet_mode = "closure"`: wedges are tested for abundance, then triangles are modeled for closure using total triples (open+closed).
-
-Both modes require `count_motifs_graphs(..., include_wedge = TRUE)`.
-
-## Motif labels vs graph isomorphisms
-
-CellEdgeR counts **labelled motifs** (colored graphlets): each distinct label
-combination is a separate motif, even when the underlying unlabeled topology is
-the same. This differs from graph isomorphism counts, which collapse motifs by
-topology alone. `triplet_mode = "merge"` only collapses open vs closed triples
-for a *given label multiset*; it does **not** merge distinct label assignments.
-
-## Motif space size
-
-You can summarize how many label-based motifs are possible given the label set
-and triplet handling mode:
+`motif_space_size()` summarizes the number of possible tested edge, triangle,
+and wedge label motifs:
 
 ```{r motif-space}
 motif_space_size(cellgraph)
 ```
 
-## Plotting motifs
+# Plotting Motifs
 
 Spatial plot of a motif within a sample:
 
@@ -222,7 +178,7 @@ plot_sample_graph(
   cellgraph,
   sample_name = "s1",
   max_edge_len = 50,
-  motif_key = "E_a_b",
+  motif_key = "T_a_b_c",
   motif_node_size = 0.8
 )
 ```
@@ -237,6 +193,14 @@ df_plot <- merge(df_plot, sample_df, by.x = "sample", by.y = "row.names", all.x 
 ggplot2::ggplot(df_plot, ggplot2::aes(x = condition, y = value, fill = condition)) +
   ggplot2::geom_boxplot() +
   ggplot2::geom_jitter(width = 0.1, alpha = 0.6) +
-  ggplot2::ylab("Normalized motif count (volume offsets)") +
+  ggplot2::ylab("Normalized motif count (volume offset)") +
   ggplot2::xlab("condition")
 ```
+
+# Assumptions
+
+- Delaunay edges are a reasonable proxy for spatial adjacency in each sample.
+- Pruning by `max_edge_len` removes long-range edges without removing meaningful local adjacency.
+- Cell labels are accurate and consistent across samples.
+- Samples are independent, and motif counts follow a negative-binomial model.
+- Volume offsets approximate expected counts under a graph with preserved label degree volumes and total edge count.

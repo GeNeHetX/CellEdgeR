@@ -70,6 +70,7 @@ test_that("edgeR pipeline runs with BH correction", {
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
   motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, include_wedge = TRUE, verbose = FALSE)
+  motif_obj$raw_count <- lapply(motif_obj$raw_count, function(mat) mat * 20)
   sample_df <- data.frame(condition = c("ctrl", "treated"), row.names = motif_obj$sample_name)
 
   res <- motif_edger(
@@ -81,11 +82,18 @@ test_that("edgeR pipeline runs with BH correction", {
 
   expect_true(inherits(res, "cellEdgeR_obj"))
   expect_true(is.list(res$edger$strategies))
-  expect_true(all(c("volume", "submotif_adj") %in% names(res$edger$strategies)))
+  expect_equal(names(res$edger$strategies), "volume")
+  expect_equal(res$edger$filter$method, "edgeR::filterByExpr")
+  expect_true(res$edger$filter$n_tested <= res$edger$filter$n_total)
   tbl <- top_edges(res, coef = "conditiontreated")
   expect_true(is.data.frame(tbl))
   expect_true(all(c("motif", "motif_type", "logFC", "PValue", "FDR") %in% names(tbl)))
-  expect_true(all(tbl$motif_type %in% c("node", "edge")))
+  expect_true(all(tbl$motif_type %in% "edge"))
+
+  motif2_tbl <- top_motifs2(res, coef = "conditiontreated")
+  expect_true(is.data.frame(motif2_tbl))
+  expect_true(all(motif2_tbl$motif_type %in% c("triangle", "wedge")))
+  expect_true(all(c("edge12", "edge13", "edge23", "submotif_min_FDR") %in% names(motif2_tbl)))
 })
 
 test_that("motif_edger supports intercept-only design", {
@@ -95,6 +103,7 @@ test_that("motif_edger supports intercept-only design", {
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
   motif_obj <- count_motifs_graphs(graphs, max_edge_len = 3, include_wedge = TRUE, verbose = FALSE)
+  motif_obj$raw_count <- lapply(motif_obj$raw_count, function(mat) mat * 20)
   sample_df <- data.frame(intercept = rep(1, length(motif_obj$sample_name)), row.names = motif_obj$sample_name)
   res <- motif_edger(
     cellgraph = motif_obj,
@@ -140,7 +149,7 @@ test_that("get_motif_values returns motif and submotif values", {
   expect_true(any(grepl("^E_", colnames(sub_vals))))
 })
 
-test_that("wedge is modeled when not merged", {
+test_that("motif2 output keeps wedges and triangles with submotif statistics", {
   cells <- list(
     s1 = data.frame(
       x = c(0, 2, 4, 1),
@@ -155,60 +164,21 @@ test_that("wedge is modeled when not merged", {
   )
   graphs <- build_cell_graphs(cells, verbose = FALSE)
   motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
+  motif_obj$raw_count <- lapply(motif_obj$raw_count, function(mat) mat * 20)
   sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
   res <- motif_edger(
     cellgraph = motif_obj,
     sample_df = sample_df,
     design_formula = "~ group",
-    triplet_mode = "closure",
     verbose = FALSE
   )
-  tbl <- top_triplets(res, strategy = "topology", coef = "groupg2")
+  tbl <- top_motifs2(res, coef = "groupg2")
   expect_true(any(tbl$motif_type == "wedge"))
+  expect_true(any(tbl$motif_type == "triangle"))
   if (any(tbl$motif_type == "wedge")) {
     expect_true(all(grepl("^W_", tbl$motif[tbl$motif_type == "wedge"])))
   }
-})
-
-test_that("triplet_mode merge collapses 3-node motifs", {
-  cells <- list(
-    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
-    s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
-  )
-  graphs <- build_cell_graphs(cells, verbose = FALSE)
-  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
-  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
-  res <- motif_edger(
-    cellgraph = motif_obj,
-    sample_df = sample_df,
-    design_formula = "~ group",
-    triplet_mode = "merge",
-    strategies = "volume",
-    verbose = FALSE
-  )
-  expect_true(any(res$edger$motif_info$motif_type == "triplet"))
-  expect_false(any(res$edger$motif_info$motif_type %in% c("triangle", "wedge")))
-  tbl <- top_triplets(res, coef = "groupg2")
-  expect_true(all(tbl$motif_type == "triplet"))
-})
-
-test_that("triplet_mode closure uses triplet_force covariate", {
-  cells <- list(
-    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
-    s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
-  )
-  graphs <- build_cell_graphs(cells, verbose = FALSE)
-  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, include_wedge = TRUE, verbose = FALSE)
-  sample_df <- data.frame(group = c("g1", "g2"), row.names = motif_obj$sample_name)
-  res <- motif_edger(
-    cellgraph = motif_obj,
-    sample_df = sample_df,
-    design_formula = "~ group",
-    triplet_mode = "closure",
-    strategies = "submotif_adj",
-    verbose = FALSE
-  )
-  expect_true("triplet_force" %in% res$edger$strategies$submotif_adj$coef_names)
+  expect_true(all(c("edge12_logFC", "edge13_PValue", "edge23_FDR") %in% names(tbl)))
 })
 
 test_that("erosion drops boundary cells without retriangulating", {
@@ -254,7 +224,22 @@ test_that("normalized counts follow motifs offsets", {
   expect_equal(as.matrix(norm$node), as.matrix(motif_obj$raw_count$node) / exp(expected_cells))
 })
 
-test_that("motif_space_size reports combinatorial counts", {
+test_that("volume edge offsets use unordered same-label correction", {
+  cells <- list(
+    s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "A", "B"))
+  )
+  graphs <- build_cell_graphs(cells, verbose = FALSE)
+  motif_obj <- count_motifs_graphs(graphs, max_edge_len = NA_real_, verbose = FALSE)
+  off <- as.matrix(motif_obj$offsets$volume$edge)
+  vol_a <- motif_obj$exposure$volumes["A", "s1"]
+  two_m <- 2 * motif_obj$exposure$edges["s1"]
+  expect_equal(
+    unname(off["E_A_A", "s1"]),
+    unname(log(vol_a) + log(vol_a) - log(two_m) - log(2))
+  )
+})
+
+test_that("motif_space_size reports tested combinatorial counts", {
   cells <- list(
     s1 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C")),
     s2 = data.frame(x = c(0, 1, 0), y = c(0, 0, 1), label = c("A", "B", "C"))
@@ -266,15 +251,14 @@ test_that("motif_space_size reports combinatorial counts", {
     cellgraph = motif_obj,
     sample_df = sample_df,
     design_formula = "~ group",
-    triplet_mode = "merge",
-    strategies = "volume",
     verbose = FALSE
   )
   space <- motif_space_size(res)
   expect_equal(space$labels, 3)
-  expect_equal(space$triplet_mode, "merge")
   expect_true(isTRUE(space$include_wedge))
-  expect_equal(space$counts$n_possible[space$counts$layer == "triplet"], choose(5, 3))
+  expect_equal(space$counts$n_possible[space$counts$layer == "triangle"], choose(5, 3))
+  expect_false("node" %in% space$counts$layer)
+  expect_false("triplet" %in% space$counts$layer)
 })
 
 test_that("geometry-based triangulation tolerates duplicated and collinear points", {

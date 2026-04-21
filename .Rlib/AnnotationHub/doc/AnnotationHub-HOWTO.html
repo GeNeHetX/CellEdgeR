@@ -1,0 +1,781 @@
+<!doctype html>
+<html>
+   <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <meta name="generator" content="r-universe/pandoc">
+      
+      
+      <title>AnnotationHub How-To’s</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" data-external="1">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" data-external="1">
+      <link rel="stylesheet" href="https://r-universe.dev/static/article-styles.css?nocache=1" data-external="1">
+   </head>
+   <body>
+      <div class="container" id="topcontainer">
+         <script>if (window.self != window.top) try {document.getElementById('topcontainer').className = "container-fluid article-in-iframe"; } catch(e) {}</script>
+
+         <div class="frontmatter">
+         <h1 class="title">AnnotationHub How-To’s</h1>
+         </div>
+
+                  <div class="row">
+            <div class="col-xl-10"><script type="text/javascript">
+document.addEventListener("DOMContentLoaded", function() {
+  document.querySelector("h1").className = "title";
+});
+</script>
+<script type="text/javascript">
+document.addEventListener("DOMContentLoaded", function() {
+  var links = document.links;  
+  for (var i = 0, linksLength = links.length; i < linksLength; i++)
+    if (links[i].hostname != window.location.hostname)
+      links[i].target = '_blank';
+});
+</script>
+<p><strong>Package</strong>: <em><a href="https://bioconductor.org/packages/3.22/AnnotationHub">AnnotationHub</a></em><br />
+<strong>Authors</strong>: Bioconductor Package Maintainer [cre], Martin
+Morgan [aut], Marc Carlson [ctb], Dan Tenenbaum [ctb], Sonali Arora
+[ctb], Valerie Oberchain [ctb], Kayla Morrell [ctb], Lori Shepherd
+[aut]<br /> <strong>Modified</strong>: Mon March 18 2024<br />
+<strong>Compiled</strong>: Thu Mar 5 07:51:04 2026</p>
+<div id="accessing-genome-scale-data" class="section level1">
+<h1>Accessing Genome-Scale Data</h1>
+<div id="non-model-organism-gene-annotations" class="section level2">
+<h2>Non-model organism gene annotations</h2>
+<p><em>Bioconductor</em> offers pre-built <code>org.*</code> annotation
+packages for model organisms, with their use described in the <a href="http://bioconductor.org/help/workflows/annotation/Annotation_Resources/#OrgDb">OrgDb</a>
+section of the Annotation work flow. Here we discover available
+<code>OrgDb</code> objects for less-model organisms</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(AnnotationHub)</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>ah <span class="ot">&lt;-</span> <span class="fu">AnnotationHub</span>()</span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">query</span>(ah, <span class="st">&quot;OrgDb&quot;</span>)</span></code></pre></div>
+<pre><code>## AnnotationHub with 1977 records
+## # snapshotDate(): 2025-10-29
+## # $dataprovider: ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/, NCBI, ICAR-IARI, New Delhi
+## # $species: Escherichia coli, Coffea arabica, greater Indian_fruit_bat, Zophobas morio, Zophobas...
+## # $rdataclass: OrgDb, TxDb
+## # additional mcols(): taxonomyid, genome, description, coordinate_1_based, maintainer,
+## #   rdatadateadded, preparerclass, tags, rdatapath, sourceurl, sourcetype 
+## # retrieve records with, e.g., &#39;object[[&quot;AH111588&quot;]]&#39; 
+## 
+##              title                                          
+##   AH111588 | OrgDb Sqlite file for Coffea arabica           
+##   AH119540 | org.Pseudophryne_corroboree.eg.sqlite          
+##   AH119541 | org.Triticum_aestivum.eg.sqlite                
+##   AH119542 | org.Triticum_aestivum_subsp._aestivum.eg.sqlite
+##   AH119543 | org.Triticum_sativum.eg.sqlite                 
+##   ...        ...                                            
+##   AH121957 | org.Mmu.eg.db.sqlite                           
+##   AH121958 | org.Ce.eg.db.sqlite                            
+##   AH121959 | org.Xl.eg.db.sqlite                            
+##   AH121960 | org.Sc.sgd.db.sqlite                           
+##   AH121961 | org.Dr.eg.db.sqlite</code></pre>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>orgdb <span class="ot">&lt;-</span> <span class="fu">query</span>(ah, <span class="fu">c</span>(<span class="st">&quot;OrgDb&quot;</span>, <span class="st">&quot;maintainer@bioconductor.org&quot;</span>))[[<span class="dv">1</span>]]</span></code></pre></div>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<p>The object returned by AnnotationHub is directly usable with the
+<code>select()</code> interface, e.g., to discover the available
+keytypes for querying the object, the columns that these keytypes can
+map to, and finally selecting the SYMBOL and GENENAME corresponding to
+the first 6 ENTREZIDs</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="fu">library</span>(AnnotationDbi)</span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>AnnotationDbi<span class="sc">::</span><span class="fu">keytypes</span>(orgdb)</span></code></pre></div>
+<pre><code>##  [1] &quot;ACCNUM&quot;      &quot;ALIAS&quot;       &quot;ENTREZID&quot;    &quot;EVIDENCE&quot;    &quot;EVIDENCEALL&quot; &quot;GENENAME&quot;   
+##  [7] &quot;GID&quot;         &quot;GO&quot;          &quot;GOALL&quot;       &quot;ONTOLOGY&quot;    &quot;ONTOLOGYALL&quot; &quot;PMID&quot;       
+## [13] &quot;REFSEQ&quot;      &quot;SYMBOL&quot;</code></pre>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a>AnnotationDbi<span class="sc">::</span><span class="fu">columns</span>(orgdb)</span></code></pre></div>
+<pre><code>##  [1] &quot;ACCNUM&quot;      &quot;ALIAS&quot;       &quot;CHR&quot;         &quot;ENTREZID&quot;    &quot;EVIDENCE&quot;    &quot;EVIDENCEALL&quot;
+##  [7] &quot;GENENAME&quot;    &quot;GID&quot;         &quot;GO&quot;          &quot;GOALL&quot;       &quot;ONTOLOGY&quot;    &quot;ONTOLOGYALL&quot;
+## [13] &quot;PMID&quot;        &quot;REFSEQ&quot;      &quot;SYMBOL&quot;</code></pre>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a>egid <span class="ot">&lt;-</span> <span class="fu">head</span>(<span class="fu">keys</span>(orgdb, <span class="st">&quot;ENTREZID&quot;</span>))</span>
+<span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a>AnnotationDbi<span class="sc">::</span><span class="fu">select</span>(orgdb, egid, <span class="fu">c</span>(<span class="st">&quot;SYMBOL&quot;</span>, <span class="st">&quot;GENENAME&quot;</span>), <span class="st">&quot;ENTREZID&quot;</span>)</span></code></pre></div>
+<pre><code>## &#39;select()&#39; returned 1:1 mapping between keys and columns</code></pre>
+<pre><code>##    ENTREZID       SYMBOL                       GENENAME
+## 1 134884233         NPR2 natriuretic peptide receptor 2
+## 2 134884234 LOC134884234               5S ribosomal RNA
+## 3 134884235 LOC134884235               5S ribosomal RNA
+## 4 134884236 LOC134884236               5S ribosomal RNA
+## 5 134884237 LOC134884237               5S ribosomal RNA
+## 6 134884238 LOC134884238               5S ribosomal RNA</code></pre>
+</div>
+<div id="roadmap-epigenomics-project" class="section level2">
+<h2>Roadmap Epigenomics Project</h2>
+<p>All Roadmap Epigenomics files are hosted <a href="http://egg2.wustl.edu/roadmap/data/byFileType/">here</a>. If one
+had to download these files on their own, one would navigate through the
+web interface to find useful files, then use something like the
+following <em>R</em> code.</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" tabindex="-1"></a>url <span class="ot">&lt;-</span> <span class="st">&quot;http://egg2.wustl.edu/roadmap/data/byFileType/peaks/consolidated/broadPeak/E001-H3K4me1.broadPeak.gz&quot;</span></span>
+<span id="cb15-2"><a href="#cb15-2" tabindex="-1"></a>filename <span class="ot">&lt;-</span>  <span class="fu">basename</span>(url)</span>
+<span id="cb15-3"><a href="#cb15-3" tabindex="-1"></a><span class="fu">download.file</span>(url, <span class="at">destfile=</span>filename)</span>
+<span id="cb15-4"><a href="#cb15-4" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">file.exists</span>(filename))</span>
+<span id="cb15-5"><a href="#cb15-5" tabindex="-1"></a>   data <span class="ot">&lt;-</span> <span class="fu">import</span>(filename, <span class="at">format=</span><span class="st">&quot;bed&quot;</span>)</span></code></pre></div>
+<p>This would have to be repeated for all files, and the onus would lie
+on the user to identify, download, import, and manage the local disk
+location of these files.</p>
+<p><em><a href="https://bioconductor.org/packages/3.22/AnnotationHub">AnnotationHub</a></em>
+reduces this task to just a few lines of <em>R</em> code</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" tabindex="-1"></a><span class="fu">library</span>(AnnotationHub)</span>
+<span id="cb16-2"><a href="#cb16-2" tabindex="-1"></a>ah <span class="ot">=</span> <span class="fu">AnnotationHub</span>()</span>
+<span id="cb16-3"><a href="#cb16-3" tabindex="-1"></a>epiFiles <span class="ot">&lt;-</span> <span class="fu">query</span>(ah, <span class="st">&quot;EpigenomeRoadMap&quot;</span>)</span></code></pre></div>
+<p>A look at the value returned by <code>epiFiles</code> shows us that
+18250 roadmap resources are available via <em><a href="https://bioconductor.org/packages/3.22/AnnotationHub">AnnotationHub</a></em>.
+Additional information about the files is also available, e.g., where
+the files came from (dataprovider), genome, species, sourceurl,
+sourcetypes.</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" tabindex="-1"></a>epiFiles</span></code></pre></div>
+<pre><code>## AnnotationHub with 18250 records
+## # snapshotDate(): 2025-10-29
+## # $dataprovider: BroadInstitute, NA
+## # $species: Homo sapiens
+## # $rdataclass: BigWigFile, GRanges, data.frame
+## # additional mcols(): taxonomyid, genome, description, coordinate_1_based, maintainer,
+## #   rdatadateadded, preparerclass, tags, rdatapath, sourceurl, sourcetype 
+## # retrieve records with, e.g., &#39;object[[&quot;AH28856&quot;]]&#39; 
+## 
+##              title                                 
+##   AH28856  | E001-H3K4me1.broadPeak.gz             
+##   AH28857  | E001-H3K4me3.broadPeak.gz             
+##   AH28858  | E001-H3K9ac.broadPeak.gz              
+##   AH28859  | E001-H3K9me3.broadPeak.gz             
+##   AH28860  | E001-H3K27me3.broadPeak.gz            
+##   ...        ...                                   
+##   AH49542  | E061_mCRF_FractionalMethylation.bigwig
+##   AH49543  | E081_mCRF_FractionalMethylation.bigwig
+##   AH49544  | E082_mCRF_FractionalMethylation.bigwig
+##   AH116724 | TENET_consensus_enhancer_regions      
+##   AH116726 | TENET_consensus_promoter_regions</code></pre>
+<p>A good sanity check to ensure that we have files only from the
+Roadmap Epigenomics project is to check that all the files in the
+returned smaller hub object come from <em>Homo sapiens</em> and the
+hg19, hg38 genome</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" tabindex="-1"></a><span class="fu">unique</span>(epiFiles<span class="sc">$</span>species)</span></code></pre></div>
+<pre><code>## [1] &quot;Homo sapiens&quot;</code></pre>
+<div class="sourceCode" id="cb21"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" tabindex="-1"></a><span class="fu">unique</span>(epiFiles<span class="sc">$</span>genome)</span></code></pre></div>
+<pre><code>## [1] &quot;hg19&quot; &quot;hg38&quot;</code></pre>
+<p>Broadly, one can get an idea of the different files from this project
+looking at the sourcetype</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" tabindex="-1"></a><span class="fu">table</span>(epiFiles<span class="sc">$</span>sourcetype)</span></code></pre></div>
+<pre><code>## 
+##      BED   BigWig      GTF Multiple      Zip      tab 
+##     8298     9932        3        2       14        1</code></pre>
+<p>To get a more descriptive idea of these different files one can
+use:</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" tabindex="-1"></a><span class="fu">sort</span>(<span class="fu">table</span>(epiFiles<span class="sc">$</span>description), <span class="at">decreasing=</span><span class="cn">TRUE</span>)</span></code></pre></div>
+<pre><code>## 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Bigwig File containing -log10(p-value) signal tracks from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          6881 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Bigwig File containing fold enrichment signal tracks from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          2947 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               Narrow ChIP-seq peaks for consolidated epigenomes from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          2894 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                Broad ChIP-seq peaks for consolidated epigenomes from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          2534 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               Gapped ChIP-seq peaks for consolidated epigenomes from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          2534 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   Narrow DNasePeaks for consolidated epigenomes from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           131 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                15 state chromatin segmentations from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           127 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           Broad domains on enrichment for DNase-seq for consolidated epigenomes from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            78 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              RRBS fractional methylation calls from EpigenomeRoadMap Project  
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            51 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Whole genome bisulphite fractional methylation calls from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            37 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    MeDIP/MRE(mCRF) fractional methylation calls from EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            16 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      GencodeV10 gene/transcript coordinates and annotations corresponding to hg19 version of the human genome 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             3 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            RNA-seq read count matrix for intronic protein-coding RNA elements 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             2 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           RNA-seq read counts matrix for ribosomal gene exons 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             2 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               RPKM expression matrix for ribosomal gene exons 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             2 
+## A composite GRanges object containing regions of putative enhancer elements from a variety of sources, primarily for use in the TENET Bioconductor package. This dataset is composed of regions of strong enhancers as annotated by the Roadmap Epigenomics ChromHMM expanded 18-state model based on 98 reference epigenomes, lifted over to the hg38 genome, as well as regions of human permissive enhancers identified by the FANTOM5 project. For additional information on component datasets, see the manifest file hosted at https://github.com/rhielab/TENET.AnnotationHub/blob/devel/data-raw/TENET_consensus_datasets_manifest.tsv 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                      A composite GRanges object containing regions of putative promoter elements from a variety of sources, primarily for use in the TENET Bioconductor package. This dataset is composed of regions flanking transcription start sites as annotated by the Roadmap Epigenomics ChromHMM expanded 18-state model based on 98 reference epigenomes, lifted over to the hg38 genome. For additional information on component datasets, see the manifest file hosted at https://github.com/rhielab/TENET.AnnotationHub/blob/devel/data-raw/TENET_consensus_datasets_manifest.tsv 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         Metadata for EpigenomeRoadMap Project 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                RNA-seq read counts matrix for non-coding RNAs 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           RNA-seq read counts matrix for protein coding exons 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           RNA-seq read counts matrix for protein coding genes 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                RNA-seq read counts matrix for ribosomal genes 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    RPKM expression matrix for non-coding RNAs 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               RPKM expression matrix for protein coding exons 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               RPKM expression matrix for protein coding genes 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     RPKM expression matrix for ribosomal RNAs 
+##                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             1</code></pre>
+<p>The ‘metadata’ provided by the Roadmap Epigenomics Project is also
+available. Note that the information displayed about a hub with a single
+resource is quite different from the information displayed when the hub
+references more than one resource.</p>
+<div class="sourceCode" id="cb27"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" tabindex="-1"></a>metadata.tab <span class="ot">&lt;-</span> <span class="fu">query</span>(ah , <span class="fu">c</span>(<span class="st">&quot;EpigenomeRoadMap&quot;</span>, <span class="st">&quot;Metadata&quot;</span>))</span>
+<span id="cb27-2"><a href="#cb27-2" tabindex="-1"></a>metadata.tab</span></code></pre></div>
+<pre><code>## AnnotationHub with 1 record
+## # snapshotDate(): 2025-10-29
+## # names(): AH41830
+## # $dataprovider: BroadInstitute
+## # $species: Homo sapiens
+## # $rdataclass: data.frame
+## # $rdatadateadded: 2015-05-11
+## # $title: EID_metadata.tab
+## # $description: Metadata for EpigenomeRoadMap Project
+## # $taxonomyid: 9606
+## # $genome: hg19
+## # $sourcetype: tab
+## # $sourceurl: http://egg2.wustl.edu/roadmap/data/byFileType/metadata/EID_metadata.tab
+## # $sourcesize: 18035
+## # $tags: c(&quot;EpigenomeRoadMap&quot;, &quot;Metadata&quot;) 
+## # retrieve record with &#39;object[[&quot;AH41830&quot;]]&#39;</code></pre>
+<p>So far we have been exploring information about resources, without
+downloading the resource to a local cache and importing it into R. One
+can retrieve the resource using <code>[[</code> as indicated at the end
+of the show method</p>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<div class="sourceCode" id="cb32"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" tabindex="-1"></a>metadata.tab <span class="ot">&lt;-</span> ah[[<span class="st">&quot;AH41830&quot;</span>]]</span></code></pre></div>
+<pre><code>## loading from cache</code></pre>
+<p>The metadata.tab file is returned as a <em>data.frame</em>. The first
+6 rows of the first 5 columns are shown here:</p>
+<div class="sourceCode" id="cb34"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" tabindex="-1"></a>metadata.tab[<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>]</span></code></pre></div>
+<pre><code>##    EID    GROUP   COLOR          MNEMONIC                                   STD_NAME
+## 1 E001      ESC #924965            ESC.I3                                ES-I3 Cells
+## 2 E002      ESC #924965           ESC.WA7                               ES-WA7 Cells
+## 3 E003      ESC #924965            ESC.H1                                   H1 Cells
+## 4 E004 ES-deriv #4178AE ESDR.H1.BMP4.MESO H1 BMP4 Derived Mesendoderm Cultured Cells
+## 5 E005 ES-deriv #4178AE ESDR.H1.BMP4.TROP H1 BMP4 Derived Trophoblast Cultured Cells
+## 6 E006 ES-deriv #4178AE       ESDR.H1.MSC          H1 Derived Mesenchymal Stem Cells</code></pre>
+<p>One can keep constructing different queries using multiple arguments
+to trim down these 18250 to get the files one wants. For example, to get
+the ChIP-Seq files for consolidated epigenomes, one could use</p>
+<div class="sourceCode" id="cb36"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" tabindex="-1"></a>bpChipEpi <span class="ot">&lt;-</span> <span class="fu">query</span>(ah , <span class="fu">c</span>(<span class="st">&quot;EpigenomeRoadMap&quot;</span>, <span class="st">&quot;broadPeak&quot;</span>, <span class="st">&quot;chip&quot;</span>, <span class="st">&quot;consolidated&quot;</span>))</span></code></pre></div>
+<p>To get all the bigWig signal files, one can query the hub using</p>
+<div class="sourceCode" id="cb37"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" tabindex="-1"></a>allBigWigFiles <span class="ot">&lt;-</span> <span class="fu">query</span>(ah, <span class="fu">c</span>(<span class="st">&quot;EpigenomeRoadMap&quot;</span>, <span class="st">&quot;BigWig&quot;</span>))</span></code></pre></div>
+<p>To access the 15 state chromatin segmentations, one can use</p>
+<div class="sourceCode" id="cb38"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" tabindex="-1"></a>seg <span class="ot">&lt;-</span> <span class="fu">query</span>(ah, <span class="fu">c</span>(<span class="st">&quot;EpigenomeRoadMap&quot;</span>, <span class="st">&quot;segmentations&quot;</span>))</span></code></pre></div>
+<p>If one is interested in getting all the files related to one
+sample</p>
+<div class="sourceCode" id="cb39"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" tabindex="-1"></a>E126 <span class="ot">&lt;-</span> <span class="fu">query</span>(ah , <span class="fu">c</span>(<span class="st">&quot;EpigenomeRoadMap&quot;</span>, <span class="st">&quot;E126&quot;</span>, <span class="st">&quot;H3K4ME2&quot;</span>))</span>
+<span id="cb39-2"><a href="#cb39-2" tabindex="-1"></a>E126</span></code></pre></div>
+<pre><code>## AnnotationHub with 6 records
+## # snapshotDate(): 2025-10-29
+## # $dataprovider: BroadInstitute
+## # $species: Homo sapiens
+## # $rdataclass: GRanges, BigWigFile
+## # additional mcols(): taxonomyid, genome, description, coordinate_1_based, maintainer,
+## #   rdatadateadded, preparerclass, tags, rdatapath, sourceurl, sourcetype 
+## # retrieve records with, e.g., &#39;object[[&quot;AH29817&quot;]]&#39; 
+## 
+##             title                                  
+##   AH29817 | E126-H3K4me2.broadPeak.gz              
+##   AH30868 | E126-H3K4me2.narrowPeak.gz             
+##   AH31801 | E126-H3K4me2.gappedPeak.gz             
+##   AH32990 | E126-H3K4me2.fc.signal.bigwig          
+##   AH34022 | E126-H3K4me2.pval.signal.bigwig        
+##   AH40177 | E126-H3K4me2.imputed.pval.signal.bigwig</code></pre>
+<p>Hub resources can also be selected using <code>$</code>,
+<code>subset()</code>, and <code>BiocHubsShiny()</code>; see the main <a href="AnnotationHub.html"><em>AnnotationHub</em> vignette</a> for
+additional detail.</p>
+<p>Hub resources are imported as the appropriate <em>Bioconductor</em>
+object for use in further analysis. For example, peak files are returned
+as <em>GRanges</em> objects.</p>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<pre><code>## require(&quot;rtracklayer&quot;)</code></pre>
+<div class="sourceCode" id="cb45"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" tabindex="-1"></a>peaks <span class="ot">&lt;-</span> E126[[<span class="st">&#39;AH29817&#39;</span>]]</span></code></pre></div>
+<pre><code>## loading from cache</code></pre>
+<div class="sourceCode" id="cb47"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb47-1"><a href="#cb47-1" tabindex="-1"></a><span class="fu">seqinfo</span>(peaks)</span></code></pre></div>
+<pre><code>## Seqinfo object with 298 sequences (2 circular) from hg19 genome:
+##   seqnames       seqlengths isCircular genome
+##   chr1            249250621      FALSE   hg19
+##   chr2            243199373      FALSE   hg19
+##   chr3            198022430      FALSE   hg19
+##   chr4            191154276      FALSE   hg19
+##   chr5            180915260      FALSE   hg19
+##   ...                   ...        ...    ...
+##   chrUn_gl000245      36651      FALSE   hg19
+##   chrUn_gl000246      38154      FALSE   hg19
+##   chrUn_gl000247      36422      FALSE   hg19
+##   chrUn_gl000248      39786      FALSE   hg19
+##   chrUn_gl000249      38502      FALSE   hg19</code></pre>
+<p>BigWig files are returned as <em>BigWigFile</em> objects. A
+<em>BigWigFile</em> is a reference to a file on disk; the data in the
+file can be read in using <code>rtracklayer::import()</code>, perhaps
+querying these large files for particular genomic regions of interest as
+described on the help page <code>?import.bw</code>.</p>
+<p>Each record inside <em><a href="https://bioconductor.org/packages/3.22/AnnotationHub">AnnotationHub</a></em>
+is associated with a unique identifier. Most <em>GRanges</em> objects
+returned by <em><a href="https://bioconductor.org/packages/3.22/AnnotationHub">AnnotationHub</a></em>
+contain the unique AnnotationHub identifier of the resource from which
+the <em>GRanges</em> is derived. This can come handy when working with
+the <em>GRanges</em> object for a while, and additional information
+about the object (e.g., the name of the file in the cache, or the
+original sourceurl for the data underlying the resource) that is being
+worked with.</p>
+<div class="sourceCode" id="cb49"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb49-1"><a href="#cb49-1" tabindex="-1"></a><span class="fu">metadata</span>(peaks)</span></code></pre></div>
+<pre><code>## $AnnotationHubName
+## [1] &quot;AH29817&quot;
+## 
+## $`File Name`
+## [1] &quot;E126-H3K4me2.broadPeak.gz&quot;
+## 
+## $`Data Source`
+## [1] &quot;http://egg2.wustl.edu/roadmap/data/byFileType/peaks/consolidated/broadPeak/E126-H3K4me2.broadPeak.gz&quot;
+## 
+## $Provider
+## [1] &quot;BroadInstitute&quot;
+## 
+## $Organism
+## [1] &quot;Homo sapiens&quot;
+## 
+## $`Taxonomy ID`
+## [1] 9606</code></pre>
+<div class="sourceCode" id="cb51"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" tabindex="-1"></a>ah[<span class="fu">metadata</span>(peaks)<span class="sc">$</span>AnnotationHubName]<span class="sc">$</span>sourceurl</span></code></pre></div>
+<pre><code>## [1] &quot;http://egg2.wustl.edu/roadmap/data/byFileType/peaks/consolidated/broadPeak/E126-H3K4me2.broadPeak.gz&quot;</code></pre>
+</div>
+<div id="ensembl-gtf-and-fasta-files-for-txdb-gene-models-and-sequence-queries" class="section level2">
+<h2>Ensembl GTF and FASTA files for TxDb gene models and sequence
+queries</h2>
+<p><em>Bioconductor</em> represents gene models using ‘transcript’
+databases. These are available via packages such as <em><a href="https://bioconductor.org/packages/3.22/TxDb.Hsapiens.UCSC.hg38.knownGene">TxDb.Hsapiens.UCSC.hg38.knownGene</a></em>
+or can be constructed using functions such as <em><a href="https://bioconductor.org/packages/3.22/txdbmaker">txdbmaker</a></em>::<code>makeTxDbFromBiomart()</code>.</p>
+<p><em>AnnotationHub</em> provides an easy way to work with gene models
+published by Ensembl. Let’s see what Ensembl’s Release-94 has in terms
+of data for pufferfish, <em>Takifugu rubripes</em>.</p>
+<div class="sourceCode" id="cb53"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb53-1"><a href="#cb53-1" tabindex="-1"></a><span class="fu">query</span>(ah, <span class="fu">c</span>(<span class="st">&quot;Takifugu&quot;</span>, <span class="st">&quot;release-94&quot;</span>))</span></code></pre></div>
+<pre><code>## AnnotationHub with 7 records
+## # snapshotDate(): 2025-10-29
+## # $dataprovider: Ensembl
+## # $species: Takifugu rubripes
+## # $rdataclass: TwoBitFile, GRanges
+## # additional mcols(): taxonomyid, genome, description, coordinate_1_based, maintainer,
+## #   rdatadateadded, preparerclass, tags, rdatapath, sourceurl, sourcetype 
+## # retrieve records with, e.g., &#39;object[[&quot;AH64856&quot;]]&#39; 
+## 
+##             title                                       
+##   AH64856 | Takifugu_rubripes.FUGU5.94.abinitio.gtf     
+##   AH64857 | Takifugu_rubripes.FUGU5.94.chr.gtf          
+##   AH64858 | Takifugu_rubripes.FUGU5.94.gtf              
+##   AH66114 | Takifugu_rubripes.FUGU5.cdna.all.2bit       
+##   AH66115 | Takifugu_rubripes.FUGU5.dna_rm.toplevel.2bit
+##   AH66116 | Takifugu_rubripes.FUGU5.dna_sm.toplevel.2bit
+##   AH66117 | Takifugu_rubripes.FUGU5.ncrna.2bit</code></pre>
+<p>We see that there is a GTF file descrbing gene models, as well as
+various DNA sequences. Let’s retrieve the GTF and top-level DNA sequence
+files. The GTF file is imported as a <em>GRanges</em> instance, the DNA
+sequence as a twobit file.</p>
+<div class="sourceCode" id="cb55"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" tabindex="-1"></a>gtf <span class="ot">&lt;-</span> ah[[<span class="st">&quot;AH64858&quot;</span>]]</span></code></pre></div>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<pre><code>## Importing File into R ..</code></pre>
+<div class="sourceCode" id="cb60"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb60-1"><a href="#cb60-1" tabindex="-1"></a>dna <span class="ot">&lt;-</span> ah[[<span class="st">&quot;AH66116&quot;</span>]]</span></code></pre></div>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<div class="sourceCode" id="cb64"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb64-1"><a href="#cb64-1" tabindex="-1"></a><span class="fu">head</span>(gtf, <span class="dv">3</span>)</span></code></pre></div>
+<pre><code>## GRanges object with 3 ranges and 22 metadata columns:
+##       seqnames        ranges strand |   source       type     score     phase            gene_id
+##          &lt;Rle&gt;     &lt;IRanges&gt;  &lt;Rle&gt; | &lt;factor&gt;   &lt;factor&gt; &lt;numeric&gt; &lt;integer&gt;        &lt;character&gt;
+##   [1]        1 217531-252954      + |  ensembl gene              NA      &lt;NA&gt; ENSTRUG00000009922
+##   [2]        1 217531-252954      + |  ensembl transcript        NA      &lt;NA&gt; ENSTRUG00000009922
+##   [3]        1 217531-217702      + |  ensembl exon              NA      &lt;NA&gt; ENSTRUG00000009922
+##       gene_version   gene_name gene_source   gene_biotype      transcript_id transcript_version
+##        &lt;character&gt; &lt;character&gt; &lt;character&gt;    &lt;character&gt;        &lt;character&gt;        &lt;character&gt;
+##   [1]            2       sdk2b     ensembl protein_coding               &lt;NA&gt;               &lt;NA&gt;
+##   [2]            2       sdk2b     ensembl protein_coding ENSTRUT00000025027                  2
+##   [3]            2       sdk2b     ensembl protein_coding ENSTRUT00000025027                  2
+##       transcript_name transcript_source transcript_biotype exon_number            exon_id
+##           &lt;character&gt;       &lt;character&gt;        &lt;character&gt; &lt;character&gt;        &lt;character&gt;
+##   [1]            &lt;NA&gt;              &lt;NA&gt;               &lt;NA&gt;        &lt;NA&gt;               &lt;NA&gt;
+##   [2]       sdk2b-201           ensembl     protein_coding        &lt;NA&gt;               &lt;NA&gt;
+##   [3]       sdk2b-201           ensembl     protein_coding           1 ENSTRUE00000325931
+##       exon_version  protein_id protein_version projection_parent_gene projection_parent_transcript
+##        &lt;character&gt; &lt;character&gt;     &lt;character&gt;            &lt;character&gt;                  &lt;character&gt;
+##   [1]         &lt;NA&gt;        &lt;NA&gt;            &lt;NA&gt;                   &lt;NA&gt;                         &lt;NA&gt;
+##   [2]         &lt;NA&gt;        &lt;NA&gt;            &lt;NA&gt;                   &lt;NA&gt;                         &lt;NA&gt;
+##   [3]            1        &lt;NA&gt;            &lt;NA&gt;                   &lt;NA&gt;                         &lt;NA&gt;
+##               tag
+##       &lt;character&gt;
+##   [1]        &lt;NA&gt;
+##   [2]        &lt;NA&gt;
+##   [3]        &lt;NA&gt;
+##   -------
+##   seqinfo: 1627 sequences (1 circular) from FUGU5 genome; no seqlengths</code></pre>
+<div class="sourceCode" id="cb66"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb66-1"><a href="#cb66-1" tabindex="-1"></a>dna</span></code></pre></div>
+<pre><code>## TwoBitFile object
+## resource: /github/home/.cache/R/AnnotationHub/219b6d16d8ef_72862</code></pre>
+<div class="sourceCode" id="cb68"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb68-1"><a href="#cb68-1" tabindex="-1"></a><span class="fu">head</span>(<span class="fu">seqlevels</span>(dna))</span></code></pre></div>
+<pre><code>## [1] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; &quot;5&quot; &quot;6&quot;</code></pre>
+<p>Let’s identify the 25 longest DNA sequences, and keep just the
+annotations on these scaffolds.</p>
+<div class="sourceCode" id="cb70"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb70-1"><a href="#cb70-1" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">tail</span>(<span class="fu">sort</span>(<span class="fu">seqlengths</span>(dna)), <span class="dv">25</span>))</span>
+<span id="cb70-2"><a href="#cb70-2" tabindex="-1"></a>gtf_subset <span class="ot">&lt;-</span> gtf[<span class="fu">seqnames</span>(gtf) <span class="sc">%in%</span> keep]</span></code></pre></div>
+<p>It is trivial to make a TxDb instance of this subset (or of the
+entire gtf)</p>
+<div class="sourceCode" id="cb71"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb71-1"><a href="#cb71-1" tabindex="-1"></a><span class="fu">library</span>(txdbmaker)         <span class="co"># for makeTxDbFromGRanges</span></span>
+<span id="cb71-2"><a href="#cb71-2" tabindex="-1"></a>txdb <span class="ot">&lt;-</span> <span class="fu">makeTxDbFromGRanges</span>(gtf_subset)</span></code></pre></div>
+<pre><code>## Warning in .get_cds_IDX(mcols0$type, mcols0$phase): The &quot;phase&quot; metadata column contains non-NA values for features of type stop_codon. This
+##   information was ignored.</code></pre>
+<pre><code>## Warning in .makeTxDb_normarg_chrominfo(chrominfo): genome version information is not available for
+## this TxDb object</code></pre>
+<p>and to use that in conjunction with the DNA sequences, e.g., to find
+exon sequences of all annotated genes.</p>
+<div class="sourceCode" id="cb74"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb74-1"><a href="#cb74-1" tabindex="-1"></a><span class="fu">library</span>(Rsamtools)               <span class="co"># for getSeq,FaFile-method</span></span>
+<span id="cb74-2"><a href="#cb74-2" tabindex="-1"></a>exons <span class="ot">&lt;-</span> <span class="fu">exons</span>(txdb)</span>
+<span id="cb74-3"><a href="#cb74-3" tabindex="-1"></a><span class="fu">length</span>(exons)</span></code></pre></div>
+<pre><code>## [1] 178769</code></pre>
+<div class="sourceCode" id="cb76"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb76-1"><a href="#cb76-1" tabindex="-1"></a><span class="fu">getSeq</span>(dna, exons)</span></code></pre></div>
+<pre><code>## DNAStringSet object of length 178769:
+##          width seq
+##      [1]   172 CGATACGGCGCGCTCCGTTTGCCTCCGCCCCCCCCGTGGCG...GCGTTTCTGGGCCCCGCCCCCCTCGCCTCCCTCCGTGGCAG
+##      [2]    28 TTGGGATTATTCTCACACGCTGATCGGT
+##      [3]   160 ACGACGTGCCCCCCTACTTCAAGACGGAGCCGGCCCGGAGC...CACAACAACACGGAGCTGACGCGCTTCTCGCTGGAGTACAG
+##      [4]   107 GTACGTGATCCCGTCTTTGGACCGCTCCCACGCCGGATTCT...GGGCGCCCTGCTGCAGAGACGCACCGAAGTCCAGGTGGTCT
+##      [5]   148 TTATGGGAAGCTTCGAGGAGGGCGAGCGAGCCCAGTCCGTC...TGGTACCGGGATGGACGCAAGATTCCCCCGAGCAGCCGCAT
+##      ...   ... ...
+## [178765]    54 ATGCCCTCAATTACACTACCGCAGAAGGAGAACGCTCTCTTCAAAAGAATATTG
+## [178766]   863 CTCTTGGTGAGGGGAAGGATGAATTTATCCGATGTCCAGTG...GTGATATAAGTTTTAGGGAAGAGCCCCATAGGCTGATGTAG
+## [178767]   270 TTTGTGCAATGGGTGGCACCAGCAGCACCAGCAGGTTGTTT...CCCGTCTATCCGGATCATGCAGTGGAACATACTGGCACAAG
+## [178768]   982 CAGTTGTACAGAAATCGTTGGAGCAGACCTGGAGGCTGTTG...CCCGTCTATCCGGATCATGCAGTGGAACATACTGGCACAAG
+## [178769]   627 GGGGGAGATTCCGATGGTGGTATATTTAAAAAGTTGAAACT...GCCAAAGTGTTCCAGTTCCACCCATCGTGGCGGCCCGCCAG</code></pre>
+<p>There is a one-to-one mapping between the genomic ranges contained in
+<code>exons</code> and the DNA sequences returned by
+<code>getSeq()</code>.</p>
+<p>Some difficulties arise when working with this partly assembled
+genome that require more advanced GenomicRanges skills, see the <em><a href="https://bioconductor.org/packages/3.22/GenomicRanges">GenomicRanges</a></em>
+vignettes, especially “<em>GenomicRanges</em> HOWTOs” and “An
+Introduction to <em>GenomicRanges</em>”.</p>
+</div>
+<div id="liftover-to-map-between-genome-builds" class="section level2">
+<h2>liftOver to map between genome builds</h2>
+<p>Suppose we wanted to lift features from one genome build to another,
+e.g., because annotations were generated for hg19 but our experimental
+analysis used hg18. We know that UCSC provides ‘liftover’ files for
+mapping between genome builds.</p>
+<p>In this example, we will take our broad Peak <em>GRanges</em> from
+E126 which comes from the ‘hg19’ genome, and lift over these features to
+their ‘hg38’ coordinates.</p>
+<div class="sourceCode" id="cb78"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb78-1"><a href="#cb78-1" tabindex="-1"></a>chainfiles <span class="ot">&lt;-</span> <span class="fu">query</span>(ah , <span class="fu">c</span>(<span class="st">&quot;hg38&quot;</span>, <span class="st">&quot;hg19&quot;</span>, <span class="st">&quot;chainfile&quot;</span>))</span>
+<span id="cb78-2"><a href="#cb78-2" tabindex="-1"></a>chainfiles</span></code></pre></div>
+<pre><code>## AnnotationHub with 4 records
+## # snapshotDate(): 2025-10-29
+## # $dataprovider: UCSC, NCBI
+## # $species: Homo sapiens
+## # $rdataclass: ChainFile
+## # additional mcols(): taxonomyid, genome, description, coordinate_1_based, maintainer,
+## #   rdatadateadded, preparerclass, tags, rdatapath, sourceurl, sourcetype 
+## # retrieve records with, e.g., &#39;object[[&quot;AH14108&quot;]]&#39; 
+## 
+##             title                                        
+##   AH14108 | hg38ToHg19.over.chain.gz                     
+##   AH14150 | hg19ToHg38.over.chain.gz                     
+##   AH78915 | Chain file for Homo sapiens rRNA hg19 to hg38
+##   AH78916 | Chain file for Homo sapiens rRNA hg38 to hg19</code></pre>
+<p>We are interested in the file that lifts over features from hg19 to
+hg38 so lets download that using</p>
+<pre><code>## downloading 1 resources</code></pre>
+<pre><code>## retrieving 1 resource</code></pre>
+<pre><code>## loading from cache</code></pre>
+<div class="sourceCode" id="cb83"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb83-1"><a href="#cb83-1" tabindex="-1"></a>chain <span class="ot">&lt;-</span> chainfiles[[<span class="st">&#39;AH14150&#39;</span>]]</span></code></pre></div>
+<pre><code>## loading from cache</code></pre>
+<div class="sourceCode" id="cb85"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb85-1"><a href="#cb85-1" tabindex="-1"></a>chain</span></code></pre></div>
+<pre><code>## Chain of length 25
+## names(25): chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 ... chr18 chr19 chr20 chr21 chr22 chrX chrY chrM</code></pre>
+<p>Perform the liftOver operation using
+<code>rtracklayer::liftOver()</code>:</p>
+<div class="sourceCode" id="cb87"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb87-1"><a href="#cb87-1" tabindex="-1"></a><span class="fu">library</span>(rtracklayer)</span>
+<span id="cb87-2"><a href="#cb87-2" tabindex="-1"></a>gr38 <span class="ot">&lt;-</span> <span class="fu">liftOver</span>(peaks, chain)</span></code></pre></div>
+<p>This returns a <em>GRangeslist</em>; update the genome of the result
+to get the final result</p>
+<div class="sourceCode" id="cb88"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb88-1"><a href="#cb88-1" tabindex="-1"></a><span class="fu">genome</span>(gr38) <span class="ot">&lt;-</span> <span class="st">&quot;hg38&quot;</span></span>
+<span id="cb88-2"><a href="#cb88-2" tabindex="-1"></a>gr38</span></code></pre></div>
+<pre><code>## GRangesList object of length 153266:
+## [[1]]
+## GRanges object with 1 range and 5 metadata columns:
+##       seqnames            ranges strand |        name     score signalValue    pValue    qValue
+##          &lt;Rle&gt;         &lt;IRanges&gt;  &lt;Rle&gt; | &lt;character&gt; &lt;numeric&gt;   &lt;numeric&gt; &lt;numeric&gt; &lt;numeric&gt;
+##   [1]     chr1 28667912-28670147      * |      Rank_1       189     10.5585   22.0132   18.9991
+##   -------
+##   seqinfo: 23 sequences from hg38 genome; no seqlengths
+## 
+## [[2]]
+## GRanges object with 1 range and 5 metadata columns:
+##       seqnames            ranges strand |        name     score signalValue    pValue    qValue
+##          &lt;Rle&gt;         &lt;IRanges&gt;  &lt;Rle&gt; | &lt;character&gt; &lt;numeric&gt;   &lt;numeric&gt; &lt;numeric&gt; &lt;numeric&gt;
+##   [1]     chr4 54090990-54092984      * |      Rank_2       188     8.11483   21.8044   18.8066
+##   -------
+##   seqinfo: 23 sequences from hg38 genome; no seqlengths
+## 
+## [[3]]
+## GRanges object with 1 range and 5 metadata columns:
+##       seqnames            ranges strand |        name     score signalValue    pValue    qValue
+##          &lt;Rle&gt;         &lt;IRanges&gt;  &lt;Rle&gt; | &lt;character&gt; &lt;numeric&gt;   &lt;numeric&gt; &lt;numeric&gt; &lt;numeric&gt;
+##   [1]    chr14 75293392-75296621      * |      Rank_3       180     8.89834   20.9771   18.0282
+##   -------
+##   seqinfo: 23 sequences from hg38 genome; no seqlengths
+## 
+## ...
+## &lt;153263 more elements&gt;</code></pre>
+</div>
+<div id="working-with-dbsnp-variants" class="section level2">
+<h2>Working with dbSNP Variants</h2>
+<p>One may also be interested in working with common germline variants
+with evidence of medical interest. This information is available at <a href="https://www.ncbi.nlm.nih.gov/variation/docs/human_variation_vcf/">NCBI</a>.</p>
+<p>Query the dbDNP files in the hub:</p>
+<p>This returns a <em>VcfFile</em> which can be read in using
+<code>r Biocpkg(&quot;VariantAnnotation&quot;)</code>; because VCF files can be
+large, <code>readVcf()</code> supports several strategies for importing
+only relevant parts of the file (e.g., particular genomic locations,
+particular features of the variants), see <code>?readVcf</code> for
+additional information.</p>
+<div class="sourceCode" id="cb90"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb90-1"><a href="#cb90-1" tabindex="-1"></a>variants <span class="ot">&lt;-</span> <span class="fu">readVcf</span>(vcf, <span class="at">genome=</span><span class="st">&quot;hg19&quot;</span>)</span>
+<span id="cb90-2"><a href="#cb90-2" tabindex="-1"></a>variants</span></code></pre></div>
+<pre><code>## class: CollapsedVCF 
+## dim: 111138 0 
+## rowRanges(vcf):
+##   GRanges with 5 metadata columns: paramRangeID, REF, ALT, QUAL, FILTER
+## info(vcf):
+##   DataFrame with 58 columns: RS, RSPOS, RV, VP, GENEINFO, dbSNPBuildID, SAO, SSR, WGT, VC, PM, T...
+## info(header(vcf)):
+##                 Number Type    Description                                                         
+##    RS           1      Integer dbSNP ID (i.e. rs number)                                           
+##    RSPOS        1      Integer Chr position reported in dbSNP                                      
+##    RV           0      Flag    RS orientation is reversed                                          
+##    VP           1      String  Variation Property.  Documentation is at ftp://ftp.ncbi.nlm.nih.g...
+##    GENEINFO     1      String  Pairs each of gene symbol:gene id.  The gene symbol and id are de...
+##    dbSNPBuildID 1      Integer First dbSNP Build for RS                                            
+##    SAO          1      Integer Variant Allele Origin: 0 - unspecified, 1 - Germline, 2 - Somatic...
+##    SSR          1      Integer Variant Suspect Reason Codes (may be more than one value added to...
+##    WGT          1      Integer Weight, 00 - unmapped, 1 - weight 1, 2 - weight 2, 3 - weight 3 o...
+##    VC           1      String  Variation Class                                                     
+##    PM           0      Flag    Variant is Precious(Clinical,Pubmed Cited)                          
+##    TPA          0      Flag    Provisional Third Party Annotation(TPA) (currently rs from PHARMG...
+##    PMC          0      Flag    Links exist to PubMed Central article                               
+##    S3D          0      Flag    Has 3D structure - SNP3D table                                      
+##    SLO          0      Flag    Has SubmitterLinkOut - From SNP-&gt;SubSNP-&gt;Batch.link_out             
+##    NSF          0      Flag    Has non-synonymous frameshift A coding region variation where one...
+##    NSM          0      Flag    Has non-synonymous missense A coding region variation where one a...
+##    NSN          0      Flag    Has non-synonymous nonsense A coding region variation where one a...
+##    REF          0      Flag    Has reference A coding region variation where one allele in the s...
+##    SYN          0      Flag    Has synonymous A coding region variation where one allele in the ...
+##    U3           0      Flag    In 3&#39; UTR Location is in an untranslated region (UTR). FxnCode = 53 
+##    U5           0      Flag    In 5&#39; UTR Location is in an untranslated region (UTR). FxnCode = 55 
+##    ASS          0      Flag    In acceptor splice site FxnCode = 73                                
+##    DSS          0      Flag    In donor splice-site FxnCode = 75                                   
+##    INT          0      Flag    In Intron FxnCode = 6                                               
+##    R3           0      Flag    In 3&#39; gene region FxnCode = 13                                      
+##    R5           0      Flag    In 5&#39; gene region FxnCode = 15                                      
+##    OTH          0      Flag    Has other variant with exactly the same set of mapped positions o...
+##    CFL          0      Flag    Has Assembly conflict. This is for weight 1 and 2 variant that ma...
+##    ASP          0      Flag    Is Assembly specific. This is set if the variant only maps to one...
+##    MUT          0      Flag    Is mutation (journal citation, explicit fact): a low frequency va...
+##    VLD          0      Flag    Is Validated.  This bit is set if the variant has 2+ minor allele...
+##    G5A          0      Flag    &gt;5% minor allele frequency in each and all populations              
+##    G5           0      Flag    &gt;5% minor allele frequency in 1+ populations                        
+##    HD           0      Flag    Marker is on high density genotyping kit (50K density or greater)...
+##    GNO          0      Flag    Genotypes available. The variant has individual genotype (in SubI...
+##    KGPhase1     0      Flag    1000 Genome phase 1 (incl. June Interim phase 1)                    
+##    KGPhase3     0      Flag    1000 Genome phase 3                                                 
+##    CDA          0      Flag    Variation is interrogated in a clinical diagnostic assay            
+##    LSD          0      Flag    Submitted from a locus-specific database                            
+##    MTP          0      Flag    Microattribution/third-party annotation(TPA:GWAS,PAGE)              
+##    OM           0      Flag    Has OMIM/OMIA                                                       
+##    NOC          0      Flag    Contig allele not present in variant allele list. The reference s...
+##    WTD          0      Flag    Is Withdrawn by submitter If one member ss is withdrawn by submit...
+##    NOV          0      Flag    Rs cluster has non-overlapping allele sets. True when rs set has ...
+##    CAF          .      String  An ordered, comma delimited list of allele frequencies based on 1...
+##    COMMON       1      Integer RS is a common SNP.  A common SNP is one that has at least one 10...
+##    CLNHGVS      .      String  Variant names from HGVS.    The order of these variants correspon...
+##    CLNALLE      .      Integer Variant alleles from REF or ALT columns.  0 is REF, 1 is the firs...
+##    CLNSRC       .      String  Variant Clinical Chanels                                            
+##    CLNORIGIN    .      String  Allele Origin. One or more of the following values may be added: ...
+##    CLNSRCID     .      String  Variant Clinical Channel IDs                                        
+##    CLNSIG       .      String  Variant Clinical Significance, 0 - Uncertain significance, 1 - no...
+##    CLNDSDB      .      String  Variant disease database name                                       
+##    CLNDSDBID    .      String  Variant disease database ID                                         
+##    CLNDBN       .      String  Variant disease name                                                
+##    CLNREVSTAT   .      String  no_assertion - No assertion provided, no_criteria - No assertion ...
+##    CLNACC       .      String  Variant Accession and Versions                                      
+## geno(vcf):
+##   List of length 0:</code></pre>
+<p><code>rowRanges()</code> returns information from the CHROM, POS and
+ID fields of the VCF file, represented as a <em>GRanges</em>
+instance</p>
+<div class="sourceCode" id="cb92"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb92-1"><a href="#cb92-1" tabindex="-1"></a><span class="fu">rowRanges</span>(variants)</span></code></pre></div>
+<pre><code>## GRanges object with 111138 ranges and 5 metadata columns:
+##               seqnames    ranges strand | paramRangeID            REF                ALT      QUAL
+##                  &lt;Rle&gt; &lt;IRanges&gt;  &lt;Rle&gt; |     &lt;factor&gt; &lt;DNAStringSet&gt; &lt;DNAStringSetList&gt; &lt;numeric&gt;
+##   rs786201005        1   1014143      * |           NA              C                  T        NA
+##   rs672601345        1   1014316      * |           NA              C                 CG        NA
+##   rs672601312        1   1014359      * |           NA              G                  T        NA
+##   rs115173026        1   1020217      * |           NA              G                  T        NA
+##   rs201073369        1   1020239      * |           NA              G                  C        NA
+##           ...      ...       ...    ... .          ...            ...                ...       ...
+##   rs527236200       MT     15943      * |           NA              T                  C        NA
+##   rs118203890       MT     15950      * |           NA              G                  A        NA
+##   rs199474700       MT     15965      * |           NA              A                  G        NA
+##   rs199474701       MT     15967      * |           NA              G                  A        NA
+##   rs199474699       MT     15990      * |           NA              C                  T        NA
+##                    FILTER
+##               &lt;character&gt;
+##   rs786201005           .
+##   rs672601345           .
+##   rs672601312           .
+##   rs115173026           .
+##   rs201073369           .
+##           ...         ...
+##   rs527236200           .
+##   rs118203890           .
+##   rs199474700           .
+##   rs199474701           .
+##   rs199474699           .
+##   -------
+##   seqinfo: 25 sequences from hg19 genome; no seqlengths</code></pre>
+<p>Note that the broadPeaks files follow the UCSC chromosome naming
+convention, and the vcf data follows the NCBI style of chromosome naming
+convention. To bring these ranges in the same chromosome naming
+convention (ie UCSC), we would use</p>
+<div class="sourceCode" id="cb94"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb94-1"><a href="#cb94-1" tabindex="-1"></a><span class="fu">library</span>(GenomeInfoDb)</span>
+<span id="cb94-2"><a href="#cb94-2" tabindex="-1"></a><span class="fu">seqlevelsStyle</span>(variants) <span class="ot">&lt;-</span> <span class="fu">seqlevelsStyle</span>(peaks)</span></code></pre></div>
+<p>And then finally to find which variants overlap these broadPeaks we
+would use:</p>
+<div class="sourceCode" id="cb95"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb95-1"><a href="#cb95-1" tabindex="-1"></a>overlap <span class="ot">&lt;-</span> <span class="fu">findOverlaps</span>(variants, peaks)</span></code></pre></div>
+<pre><code>## Warning in .merge_two_Seqinfo_objects(x, y): The 2 combined objects have no sequence levels in common. (Use
+##   suppressWarnings() to suppress this warning.)</code></pre>
+<div class="sourceCode" id="cb97"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb97-1"><a href="#cb97-1" tabindex="-1"></a>overlap</span></code></pre></div>
+<pre><code>## Hits object with 0 hits and 0 metadata columns:
+##    queryHits subjectHits
+##    &lt;integer&gt;   &lt;integer&gt;
+##   -------
+##   queryLength: 111138 / subjectLength: 153266</code></pre>
+<p>Some insight into how these results can be interpretted comes from
+looking a particular peak, e.g., the 3852nd peak</p>
+<div class="sourceCode" id="cb99"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb99-1"><a href="#cb99-1" tabindex="-1"></a>idx <span class="ot">&lt;-</span> <span class="fu">subjectHits</span>(overlap) <span class="sc">==</span> <span class="dv">3852</span></span>
+<span id="cb99-2"><a href="#cb99-2" tabindex="-1"></a>overlap[idx]</span></code></pre></div>
+<pre><code>## Hits object with 0 hits and 0 metadata columns:
+##    queryHits subjectHits
+##    &lt;integer&gt;   &lt;integer&gt;
+##   -------
+##   queryLength: 111138 / subjectLength: 153266</code></pre>
+<p>There are three variants overlapping this peak; the coordinates of
+the peak and the overlapping variants are</p>
+<div class="sourceCode" id="cb101"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb101-1"><a href="#cb101-1" tabindex="-1"></a>peaks[<span class="dv">3852</span>]</span></code></pre></div>
+<pre><code>## GRanges object with 1 range and 5 metadata columns:
+##       seqnames            ranges strand |        name     score signalValue    pValue    qValue
+##          &lt;Rle&gt;         &lt;IRanges&gt;  &lt;Rle&gt; | &lt;character&gt; &lt;numeric&gt;   &lt;numeric&gt; &lt;numeric&gt; &lt;numeric&gt;
+##   [1]    chr22 50622494-50626143      * |   Rank_3852        79     6.06768   10.1894   7.99818
+##   -------
+##   seqinfo: 298 sequences (2 circular) from hg19 genome</code></pre>
+<div class="sourceCode" id="cb103"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb103-1"><a href="#cb103-1" tabindex="-1"></a><span class="fu">rowRanges</span>(variants)[<span class="fu">queryHits</span>(overlap[idx])]</span></code></pre></div>
+<pre><code>## GRanges object with 0 ranges and 5 metadata columns:
+##    seqnames    ranges strand | paramRangeID            REF                ALT      QUAL      FILTER
+##       &lt;Rle&gt; &lt;IRanges&gt;  &lt;Rle&gt; |     &lt;factor&gt; &lt;DNAStringSet&gt; &lt;DNAStringSetList&gt; &lt;numeric&gt; &lt;character&gt;
+##   -------
+##   seqinfo: 25 sequences from hg19 genome; no seqlengths</code></pre>
+</div>
+</div>
+<div id="sessioninfo" class="section level1">
+<h1>sessionInfo</h1>
+<div class="sourceCode" id="cb105"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb105-1"><a href="#cb105-1" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div>
+<pre><code>## R version 4.5.2 (2025-10-31)
+## Platform: x86_64-pc-linux-gnu
+## Running under: Ubuntu 24.04.4 LTS
+## 
+## Matrix products: default
+## BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 
+## LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.26.so;  LAPACK version 3.12.0
+## 
+## locale:
+##  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8       
+##  [4] LC_COLLATE=C               LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+##  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                  LC_ADDRESS=C              
+## [10] LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+## 
+## time zone: Etc/UTC
+## tzcode source: system (glibc)
+## 
+## attached base packages:
+## [1] stats4    stats     graphics  grDevices utils     datasets  methods   base     
+## 
+## other attached packages:
+##  [1] GenomeInfoDb_1.46.2         rtracklayer_1.70.1          VariantAnnotation_1.56.0   
+##  [4] SummarizedExperiment_1.40.0 MatrixGenerics_1.22.0       matrixStats_1.5.0          
+##  [7] Rsamtools_2.26.0            Biostrings_2.78.0           XVector_0.50.0             
+## [10] txdbmaker_1.6.2             GenomicFeatures_1.62.0      AnnotationDbi_1.72.0       
+## [13] Biobase_2.70.0              GenomicRanges_1.62.1        IRanges_2.44.0             
+## [16] Seqinfo_1.0.0               S4Vectors_0.48.0            AnnotationHub_4.0.0        
+## [19] BiocFileCache_3.0.0         dbplyr_2.5.2                BiocGenerics_0.56.0        
+## [22] generics_0.1.4              BiocStyle_2.38.0           
+## 
+## loaded via a namespace (and not attached):
+##  [1] tidyselect_1.2.1         dplyr_1.2.0              blob_1.3.0              
+##  [4] filelock_1.0.3           bitops_1.0-9             fastmap_1.2.0           
+##  [7] RCurl_1.98-1.17          GenomicAlignments_1.46.0 XML_3.99-0.22           
+## [10] digest_0.6.39            lifecycle_1.0.5          KEGGREST_1.50.0         
+## [13] RSQLite_2.4.6            magrittr_2.0.4           compiler_4.5.2          
+## [16] rlang_1.1.7              sass_0.4.10              progress_1.2.3          
+## [19] tools_4.5.2              yaml_2.3.12              knitr_1.51              
+## [22] prettyunits_1.2.0        S4Arrays_1.10.1          bit_4.6.0               
+## [25] curl_7.0.0               DelayedArray_0.36.0      abind_1.4-8             
+## [28] BiocParallel_1.44.0      withr_3.0.2              purrr_1.2.1             
+## [31] sys_3.4.3                grid_4.5.2               biomaRt_2.66.1          
+## [34] cli_3.6.5                rmarkdown_2.30           crayon_1.5.3            
+## [37] otel_0.2.0               httr_1.4.8               rjson_0.2.23            
+## [40] DBI_1.3.0                cachem_1.1.0             stringr_1.6.0           
+## [43] parallel_4.5.2           BiocManager_1.30.27      restfulr_0.0.16         
+## [46] vctrs_0.7.1              Matrix_1.7-4             jsonlite_2.0.0          
+## [49] hms_1.1.4                bit64_4.6.0-1            maketools_1.3.2         
+## [52] jquerylib_0.1.4          glue_1.8.0               codetools_0.2-20        
+## [55] stringi_1.8.7            BiocVersion_3.22.0       BiocIO_1.20.0           
+## [58] UCSC.utils_1.6.1         tibble_3.3.1             pillar_1.11.1           
+## [61] rappdirs_0.3.4           htmltools_0.5.9          BSgenome_1.78.0         
+## [64] R6_2.6.1                 httr2_1.2.2              evaluate_1.0.5          
+## [67] lattice_0.22-9           png_0.1-8                cigarillo_1.0.0         
+## [70] memoise_2.0.1            bslib_0.10.0             SparseArray_1.10.8      
+## [73] xfun_0.56                buildtools_1.0.0         pkgconfig_2.0.3</code></pre>
+</div></div>
+            <div class="d-none d-xl-block col-xl-2 bd-toc">
+               <ul class="section-nav">
+                  <li class="toc-entry"><ul>
+<li><a href="#accessing-genome-scale-data" id="toc-accessing-genome-scale-data">Accessing Genome-Scale Data</a>
+<ul>
+<li><a href="#non-model-organism-gene-annotations" id="toc-non-model-organism-gene-annotations">Non-model organism gene
+annotations</a></li>
+<li><a href="#roadmap-epigenomics-project" id="toc-roadmap-epigenomics-project">Roadmap Epigenomics
+Project</a></li>
+<li><a href="#ensembl-gtf-and-fasta-files-for-txdb-gene-models-and-sequence-queries" id="toc-ensembl-gtf-and-fasta-files-for-txdb-gene-models-and-sequence-queries">Ensembl
+GTF and FASTA files for TxDb gene models and sequence queries</a></li>
+<li><a href="#liftover-to-map-between-genome-builds" id="toc-liftover-to-map-between-genome-builds">liftOver to map between
+genome builds</a></li>
+<li><a href="#working-with-dbsnp-variants" id="toc-working-with-dbsnp-variants">Working with dbSNP
+Variants</a></li>
+</ul></li>
+<li><a href="#sessioninfo" id="toc-sessioninfo">sessionInfo</a></li>
+</ul></li>
+               </ul>
+            </div>
+         </div>
+               </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.slim.js" data-external="1"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.min.js" data-external="1"></script>
+      <script src="https://r-universe.dev/static/article.js" data-external="1"></script>
+
+      <!-- Mathjax -->
+      <!-- <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" data-external="1"></script> -->
+      <script id="MathJax-script" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.0.0/tex-mml-chtml.min.js" data-external="1"></script>
+   </body>
+</html>

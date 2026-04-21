@@ -6,7 +6,7 @@
 \usage{
 plot_motif_volcano(
   x,
-  result_type = c("edges", "triplets_cooccurrence", "triplets_topology"),
+  result_type = c("edges", "motifs2"),
   coef = NULL,
   model = c("full", "null"),
   fdr_method = "BH",
@@ -23,17 +23,16 @@ plot_motif_volcano(
 )
 }
 \arguments{
-\item{x}{A results data frame (e.g., output of \code{\link[=top_edges]{top_edges()}} or \code{\link[=top_triplets]{top_triplets()}}),
+\item{x}{A results data frame (e.g., output of \code{\link[=top_edges]{top_edges()}} or \code{\link[=top_motifs2]{top_motifs2()}}),
 or a \code{cellEdgeR_obj} containing \code{motif_edger()} results.}
 
 \item{result_type}{Which results to fetch when \code{x} is a \code{cellEdgeR_obj}:
-\code{"edges"}, \code{"triplets_cooccurrence"}, or \code{"triplets_topology"}.}
+\code{"edges"} or \code{"motifs2"}.}
 
-\item{coef}{Coefficient name or index passed to \code{\link[=top_edges]{top_edges()}} / \code{\link[=top_triplets]{top_triplets()}}
+\item{coef}{Coefficient name or index passed to \code{\link[=top_edges]{top_edges()}} / \code{\link[=top_motifs2]{top_motifs2()}}
 when \code{x} is a \code{cellEdgeR_obj}.}
 
-\item{model}{Model (\code{"full"} or \code{"null"}) used for \code{"edges"} and \code{"triplets_cooccurrence"}
-when \code{x} is a \code{cellEdgeR_obj}.}
+\item{model}{Model (\code{"full"} or \code{"null"}) used when \code{x} is a \code{cellEdgeR_obj}.}
 
 \item{fdr_method}{Multiple testing correction method passed to \code{p.adjust} when needed.}
 
@@ -61,6 +60,6 @@ when \code{x} is a \code{cellEdgeR_obj}.}
 A \code{ggplot} object.
 }
 \description{
-Plot differential motif results (from \code{\link[=top_edges]{top_edges()}} or \code{\link[=top_triplets]{top_triplets()}}) in a
+Plot differential motif results (from \code{\link[=top_edges]{top_edges()}} or \code{\link[=top_motifs2]{top_motifs2()}}) in a
 standard volcano layout, with flexible motif labeling options.
 }

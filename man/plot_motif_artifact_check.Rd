@@ -6,7 +6,7 @@
 \usage{
 plot_motif_artifact_check(
   cellgraph,
-  offset_mode = "hier_null",
+  offset_mode = "volume",
   layer = "triangle",
   motif_key = NULL,
   log_base = 2,
@@ -17,7 +17,7 @@ plot_motif_artifact_check(
 \arguments{
 \item{cellgraph}{Output of \code{\link[=count_motifs_graphs]{count_motifs_graphs()}} (or \code{\link[=motif_edger]{motif_edger()}}) with stored relative counts.}
 
-\item{offset_mode}{Offset set to use for residuals; defaults to \code{"hier_null"}.}
+\item{offset_mode}{Offset set to use for residuals; defaults to \code{"volume"}.}
 
 \item{layer}{Motif layer to plot; defaults to \code{"triangle"}.}
 

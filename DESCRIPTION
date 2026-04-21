@@ -8,8 +8,8 @@ Authors@R:
              role = c("aut", "cre"),
              email = "remy.nicolle@inserm.fr"))
 Description: Build Delaunay graphs from spatial cell coordinates, count cell-type
-    singles, edges, and triangles, and test for differential abundance with
-    edgeR.
+    edges, wedges, and triangles, and test for differential motif abundance with
+    edgeR using volume-based Chung-Lu-style offsets.
 License: CC BY-NC 4.0 + file LICENSE
 Encoding: UTF-8
 LazyData: true

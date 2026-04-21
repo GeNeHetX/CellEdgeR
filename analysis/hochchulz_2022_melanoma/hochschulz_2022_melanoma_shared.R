@@ -100,24 +100,6 @@ permute_graph_labels <- function(graph_obj, seed = NULL) {
   out
 }
 
-build_triplet_cache <- function(counts) {
-  tri <- counts$raw_count$triangle
-  wedge <- counts$raw_count$wedge
-  if (is.null(tri) || is.null(wedge)) return(NULL)
-  tri_keys <- rownames(tri)
-  wedge_keys <- rownames(wedge)
-  build_triplet_map <- getFromNamespace("build_triplet_map", "CellEdgeR")
-  collapse_triplet_counts <- getFromNamespace("collapse_triplet_counts", "CellEdgeR")
-  collapse_triplet_offsets <- getFromNamespace("collapse_triplet_offsets", "CellEdgeR")
-  triplet_map <- build_triplet_map(tri_keys, wedge_keys, prefix = "TP")
-  trip_counts <- collapse_triplet_counts(tri, wedge, triplet_map, counts$sample_name)
-  tri_off <- counts$offsets$volume$triangle
-  wedge_off <- counts$offsets$volume$wedge
-  trip_off <- collapse_triplet_offsets(tri_off, wedge_off, triplet_map, counts$sample_name)
-  trip_norm <- trip_counts / exp(trip_off)
-  list(counts = trip_counts, offsets = trip_off, norm = trip_norm)
-}
-
 run_parallel <- function(n_cores) {
   isTRUE(n_cores > 1) && .Platform$OS.type != "windows"
 }
@@ -136,17 +118,13 @@ safe_pull <- function(x, name) {
 }
 
 collect_layer_tables <- function(res, coef_name = NULL) {
-  edges_all <- top_edges(res, coef = coef_name)
-  nodes_tbl <- edges_all[edges_all$motif_type == "node", , drop = FALSE]
-  edges_tbl <- edges_all[edges_all$motif_type == "edge", , drop = FALSE]
-  co_tbl <- top_triplets(res, strategy = "cooccurrence", coef = coef_name)
-  topo_tbl <- top_triplets(res, strategy = "topology", coef = coef_name)
-  wedge_tbl <- topo_tbl[topo_tbl$motif_type == "wedge", , drop = FALSE]
-  tri_tbl <- topo_tbl[topo_tbl$motif_type == "triangle", , drop = FALSE]
+  edges_tbl <- top_edges(res, coef = coef_name)
+  motifs2_tbl <- top_motifs2(res, coef = coef_name)
+  wedge_tbl <- motifs2_tbl[motifs2_tbl$motif_type == "wedge", , drop = FALSE]
+  tri_tbl <- motifs2_tbl[motifs2_tbl$motif_type == "triangle", , drop = FALSE]
   list(
-    node = nodes_tbl,
     edge = edges_tbl,
-    triplet_cooccurrence = co_tbl,
+    motifs2 = motifs2_tbl,
     wedge = wedge_tbl,
     triangle = tri_tbl
   )
@@ -161,6 +139,7 @@ stack_layer_pvals <- function(layer_tbls, perm_id = NA_integer_) {
       motif = tbl$motif,
       logFC = tbl$logFC,
       PValue = tbl$PValue,
+      FDR = if ("FDR" %in% names(tbl)) tbl$FDR else stats::p.adjust(tbl$PValue, method = "BH"),
       perm = perm_id,
       stringsAsFactors = FALSE
     )

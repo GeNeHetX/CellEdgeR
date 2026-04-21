@@ -443,14 +443,19 @@ display: none;
 
 <pre class="r"><code>knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
 
-repo_candidates &lt;- unique(normalizePath(c(getwd(), file.path(getwd(), &quot;..&quot;)), mustWork = FALSE))
+repo_candidates &lt;- unique(normalizePath(c(
+  getwd(),
+  file.path(getwd(), &quot;..&quot;),
+  file.path(getwd(), &quot;..&quot;, &quot;..&quot;),
+  file.path(getwd(), &quot;..&quot;, &quot;..&quot;, &quot;..&quot;)
+), mustWork = FALSE))
 repo_hit &lt;- vapply(repo_candidates, function(path) {
   desc &lt;- file.path(path, &quot;DESCRIPTION&quot;)
   file.exists(desc) &amp;&amp; any(grepl(&quot;^Package: CellEdgeR$&quot;, readLines(desc)))
 }, logical(1))
 root_dir &lt;- if (any(repo_hit)) repo_candidates[which(repo_hit)[1]] else NA_character_
 use_local &lt;- !is.na(root_dir)</code></pre>
-<p>Summary: 21048 permuted motif p-values across 5 layers.</p>
+<p>Summary: 18127 permuted motif p-values across 4 layers.</p>
 
 
 

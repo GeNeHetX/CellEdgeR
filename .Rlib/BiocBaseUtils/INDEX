@@ -1,0 +1,9 @@
+askUserYesNo            Ask user for a yes/no response
+Assertions              Suite of helper functions to test for types
+BiocBaseUtils-package   BiocBaseUtils: Utility and Internal functions
+                        for Bioconductor packages
+checkInstalled          Check packages are installed otherwise suggest
+lifeCycle               Set the life cycle stage of a function
+selectSome              Select and return only some entries from a
+                        vector
+setSlots                Convenience function to set slot values

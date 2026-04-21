@@ -1,14 +1,24 @@
 #!/usr/bin/env Rscript
 
-suppressPackageStartupMessages({
-  library(CellEdgeR)
-  library(hdf5r)
-  library(Matrix)
-})
-
 source(file.path("analysis", "serialnull", "serialnull_utils.R"))
 
 repo_root <- resolve_repo_root()
+local_rlib <- file.path(repo_root, ".Rlib")
+if (dir.exists(local_rlib)) {
+  .libPaths(c(normalizePath(local_rlib), .libPaths()))
+}
+
+suppressPackageStartupMessages({
+  library(Matrix)
+})
+if (requireNamespace("devtools", quietly = TRUE)) {
+  devtools::load_all(repo_root, quiet = TRUE)
+} else if (requireNamespace("CellEdgeR", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(CellEdgeR))
+} else {
+  stop("Install CellEdgeR or run this script from the repo with devtools available.")
+}
+
 paths <- serialnull_paths(repo_root)
 
 celledger_cache_dir <- file.path(paths$cache_dir, "celledger")
@@ -23,10 +33,26 @@ if (is.na(n_cores) || n_cores < 1L) n_cores <- 1L
 recompute_graph <- identical(tolower(Sys.getenv("SERIALNULL_RECOMPUTE_GRAPH", unset = "false")), "true")
 recompute_motifs <- identical(tolower(Sys.getenv("SERIALNULL_RECOMPUTE_MOTIFS", unset = "false")), "true")
 recompute_fit <- identical(tolower(Sys.getenv("SERIALNULL_RECOMPUTE_FIT", unset = "false")), "true")
-write_fit_cache <- identical(tolower(Sys.getenv("SERIALNULL_WRITE_FIT_CACHE", unset = "false")), "true")
+write_fit_cache_requested <- identical(tolower(Sys.getenv("SERIALNULL_WRITE_FIT_CACHE", unset = "false")), "true")
+if (write_fit_cache_requested) {
+  message("SERIALNULL_WRITE_FIT_CACHE is ignored; split_stats caches are used to avoid storing multi-GB fitted cellgraph objects.")
+}
+read_fit_cache <- FALSE
+write_fit_cache <- FALSE
 
 max_edge_len <- NA_real_
 include_wedge <- TRUE
+celledger_offset_version <- "volume_chung_lu_v2"
+celledger_stats_version <- "volume_filter_v3"
+
+is_current_celledger_motifs <- function(obj) {
+  is.list(obj) &&
+    is.list(obj$parameters) &&
+    identical(obj$parameters$offset_version, celledger_offset_version) &&
+    identical(obj$parameters$offset_modes, "volume") &&
+    is.list(obj$offsets) &&
+    "volume" %in% names(obj$offsets)
+}
 
 manifest <- run_timed_step(
   timings_csv = paths$timings_csv,
@@ -86,7 +112,7 @@ ensure_cellgraph_motifs <- function() {
   motif_rds <- file.path(celledger_cache_dir, "cellgraph_with_motifs.rds")
 
   if (file.exists(motif_rds) && !recompute_motifs) {
-    cellgraph_motifs <<- run_timed_step(
+    cached_motifs <- run_timed_step(
       timings_csv = paths$timings_csv,
       run_id = run_id,
       engine = "celledger",
@@ -94,8 +120,19 @@ ensure_cellgraph_motifs <- function() {
       step = "load_cached_motifs",
       fn = function() readRDS(motif_rds)
     )
-    cellgraph_motifs_ready <<- TRUE
-    return(cellgraph_motifs)
+    if (is_current_celledger_motifs(cached_motifs)) {
+      cellgraph_motifs <<- cached_motifs
+      cellgraph_motifs_ready <<- TRUE
+      return(cellgraph_motifs)
+    }
+    cached_version <- if (is.list(cached_motifs$parameters) && !is.null(cached_motifs$parameters$offset_version)) {
+      cached_motifs$parameters$offset_version
+    } else {
+      "<missing>"
+    }
+    message("Ignoring stale motif cache with offset_version: ", cached_version)
+    rm(cached_motifs)
+    gc(verbose = FALSE)
   }
 
   if (file.exists(cellgraph_rds) && !recompute_graph) {
@@ -197,8 +234,8 @@ for (split_name in names(split_defs)) {
     stop("Split is not balanced for ", split_name)
   }
 
-  fit_rds <- file.path(celledger_cache_dir, paste0("fit_", split_name, ".rds"))
-  split_stats_rds <- file.path(celledger_cache_dir, paste0("split_stats_", split_name, ".rds"))
+  fit_rds <- file.path(celledger_cache_dir, paste0("fit_", celledger_stats_version, "_", split_name, ".rds"))
+  split_stats_rds <- file.path(celledger_cache_dir, paste0("split_stats_", celledger_stats_version, "_", split_name, ".rds"))
 
   split_pvals <- NULL
   split_summary <- NULL
@@ -219,11 +256,10 @@ for (split_name in names(split_defs)) {
   }
 
   if (is.null(split_pvals) || is.null(split_summary)) {
-    res_merge <- NULL
-    res_topology <- NULL
+    res_volume <- NULL
     used_cached_fit <- FALSE
 
-    if (file.exists(fit_rds) && !recompute_fit) {
+    if (read_fit_cache && file.exists(fit_rds) && !recompute_fit) {
       fit_obj <- tryCatch(
         run_timed_step(
           timings_csv = paths$timings_csv,
@@ -241,9 +277,8 @@ for (split_name in names(split_defs)) {
           NULL
         }
       )
-      if (!is.null(fit_obj) && !is.null(fit_obj$res_merge) && !is.null(fit_obj$res_topology)) {
-        res_merge <- fit_obj$res_merge
-        res_topology <- fit_obj$res_topology
+      if (!is.null(fit_obj) && !is.null(fit_obj$res_volume)) {
+        res_volume <- fit_obj$res_volume
         used_cached_fit <- TRUE
       }
       rm(fit_obj)
@@ -253,37 +288,17 @@ for (split_name in names(split_defs)) {
     if (!used_cached_fit) {
       cellgraph_motifs_obj <- ensure_cellgraph_motifs()
 
-      res_merge <- run_timed_step(
+      res_volume <- run_timed_step(
         timings_csv = paths$timings_csv,
         run_id = run_id,
         engine = "celledger",
         split = split_name,
-        step = "motif_edger_merge_volume",
+        step = "motif_edger_volume",
         fn = function() {
           motif_edger(
             cellgraph = cellgraph_motifs_obj,
             sample_df = sample_df,
             design_formula = "~ group",
-            triplet_mode = "merge",
-            strategies = "volume",
-            verbose = TRUE
-          )
-        }
-      )
-
-      res_topology <- run_timed_step(
-        timings_csv = paths$timings_csv,
-        run_id = run_id,
-        engine = "celledger",
-        split = split_name,
-        step = "motif_edger_closure_topology",
-        fn = function() {
-          motif_edger(
-            cellgraph = cellgraph_motifs_obj,
-            sample_df = sample_df,
-            design_formula = "~ group",
-            triplet_mode = "closure",
-            strategies = "submotif_adj",
             verbose = TRUE
           )
         }
@@ -302,8 +317,8 @@ for (split_name in names(split_defs)) {
                 split_name = split_name,
                 split_col = split_col,
                 group_levels = expected_levels,
-                res_merge = res_merge,
-                res_topology = res_topology
+                offset_version = celledger_offset_version,
+                res_volume = res_volume
               ),
               fit_rds
             )
@@ -320,22 +335,12 @@ for (split_name in names(split_defs)) {
       split = split_name,
       step = "collect_pvalues",
       fn = function() {
-        edges_all <- top_edges(res_merge, coef = NULL, model = "full")
-        nodes_tbl <- edges_all[edges_all$motif_type == "node", , drop = FALSE]
-        edges_tbl <- edges_all[edges_all$motif_type == "edge", , drop = FALSE]
-
-        triplets_co <- top_triplets(res_merge, strategy = "cooccurrence", coef = NULL, model = "full")
-        triplets_topo <- top_triplets(res_topology, strategy = "topology", coef = NULL)
-
-        topo_tri_tbl <- triplets_topo[triplets_topo$motif_type == "triangle", , drop = FALSE]
-        topo_wedge_tbl <- triplets_topo[triplets_topo$motif_type == "wedge", , drop = FALSE]
+        edges_tbl <- top_edges(res_volume, coef = NULL, model = "full")
+        motifs2_tbl <- top_motifs2(res_volume, coef = NULL, model = "full")
 
         out <- rbind(
-          collect_pvals(nodes_tbl, "volume_nodes", split_name),
           collect_pvals(edges_tbl, "volume_edges", split_name),
-          collect_pvals(triplets_co, "cooccurrence_triplets", split_name),
-          collect_pvals(topo_tri_tbl, "topology_triangles", split_name),
-          collect_pvals(topo_wedge_tbl, "topology_wedges", split_name)
+          collect_pvals(motifs2_tbl, "volume_motifs2", split_name)
         )
 
         out <- out[is.finite(out$p_value), , drop = FALSE]
@@ -393,7 +398,7 @@ for (split_name in names(split_defs)) {
         invisible(NULL)
       }
     )
-    rm(res_merge, res_topology)
+    rm(res_volume)
     gc(verbose = FALSE)
   }
 
