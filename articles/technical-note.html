@@ -64,17 +64,28 @@
     
     
 <div class="section level2">
-<h2 id="brief-intro">Brief intro<a class="anchor" aria-label="anchor" href="#brief-intro"></a>
+<h2 id="brief-intro">Brief Intro<a class="anchor" aria-label="anchor" href="#brief-intro"></a>
 </h2>
 <p>CellEdgeR builds Delaunay graphs from spatial cell coordinates,
-counts cell-type motifs (nodes, edges, triangles, and optional wedges),
-and tests for differential abundance using edgeR with graph-aware
-offsets.</p>
+counts label-based motifs, and tests differential abundance with edgeR
+using Chung-Lu-style volume offsets. The default and primary statistical
+model is volume based.</p>
+<p>CellEdgeR tests two result sets:</p>
+<ul>
+<li>
+<code>edges</code>: edge motifs extracted with
+<code><a href="../reference/top_edges.html">top_edges()</a></code>.</li>
+<li>
+<code>motifs2</code>: wedge and triangle motifs extracted with
+<code><a href="../reference/top_edges.html">top_motifs2()</a></code>.</li>
+</ul>
+<p>Node counts are used internally for exposure and submotif values, but
+nodes are not tested. Wedges and triangles are kept separate; there is
+no merged <code>TP_*</code> triplet test.</p>
 </div>
 <div class="section level2">
-<h2 id="quick-start">Quick start<a class="anchor" aria-label="anchor" href="#quick-start"></a>
+<h2 id="quick-start">Quick Start<a class="anchor" aria-label="anchor" href="#quick-start"></a>
 </h2>
-<p>Just want the few lines of code to run the analysis?</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">CellEdgeR</span><span class="op">)</span></span>
 <span></span>
@@ -89,146 +100,117 @@ offsets.</p>
 <span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/motif_edger.html">motif_edger</a></span><span class="op">(</span></span>
 <span>  <span class="va">cellgraph</span>,</span>
 <span>  sample_df <span class="op">=</span> <span class="va">metadata_df</span>,</span>
-<span>  design_formula <span class="op">=</span> <span class="st">"~ condition"</span>,</span>
-<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"submotif_adj"</span><span class="op">)</span>,</span>
-<span>  triplet_mode <span class="op">=</span> <span class="st">"closure"</span></span>
+<span>  design_formula <span class="op">=</span> <span class="st">"~ condition"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="../reference/top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="../reference/top_edges.html">top_triplets</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"topology"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/top_edges.html">top_motifs2</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="methodology-volume-co-occurrence-topology">Methodology (volume, co-occurrence, topology)<a class="anchor" aria-label="anchor" href="#methodology-volume-co-occurrence-topology"></a>
+<h2 id="motif-layers">Motif Layers<a class="anchor" aria-label="anchor" href="#motif-layers"></a>
 </h2>
-<p>This section is a technical note aimed at readers who want to
-understand the statistical model and its assumptions.</p>
-<div class="section level3">
-<h3 id="delaunay-graphs-and-motif-layers">Delaunay graphs and motif layers<a class="anchor" aria-label="anchor" href="#delaunay-graphs-and-motif-layers"></a>
-</h3>
 <p>For each sample, CellEdgeR builds a Delaunay triangulation on the 2D
 coordinates and treats unique edges as candidate adjacency. Optional
 pruning by <code>max_edge_len</code> removes long edges before counting
-motifs. Motifs are counted on the pruned graph and stored by layer:</p>
+motifs.</p>
+<p>Motifs are counted by label:</p>
 <ul>
-<li>Nodes: <code>N_&lt;label&gt;</code>
-</li>
-<li>Edges: <code>E_&lt;label1&gt;_&lt;label2&gt;</code> (unordered)</li>
+<li>Nodes: <code>N_&lt;label&gt;</code>, used internally but not tested
+by <code><a href="../reference/motif_edger.html">motif_edger()</a></code>.</li>
+<li>Edges: <code>E_&lt;label1&gt;_&lt;label2&gt;</code>, unordered.</li>
 <li>Triangles:
-<code>T_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
-(unordered)</li>
-<li>Wedges: <code>W_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
-(centered, optional)</li>
-<li>Triplets (merged):
-<code>TP_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>
-(unordered)</li>
+<code>T_&lt;label1&gt;_&lt;label2&gt;_&lt;label3&gt;</code>,
+unordered.</li>
+<li>Wedges: <code>W_&lt;center&gt;_&lt;leaf1&gt;_&lt;leaf2&gt;</code>,
+centered and optional.</li>
 </ul>
 <p>Counts are per sample, yielding a motif-by-sample matrix for each
 layer.</p>
 </div>
-<div class="section level3">
-<h3 id="volume-exposure-and-offsets">Volume exposure and offsets<a class="anchor" aria-label="anchor" href="#volume-exposure-and-offsets"></a>
-</h3>
-<p>The volume approach uses label-specific “volumes” to represent how
-much of the graph is available for each label in each sample. Volumes
-are computed from node degrees in the Delaunay graph: for each label,
-sum the degrees of nodes with that label. Let <code>2m</code> be twice
-the number of edges in the sample.</p>
-<p>Offsets are the log expected counts under a Chung-Lu style random
-graph that preserves these volumes:</p>
+<div class="section level2">
+<h2 id="volume-offsets">Volume Offsets<a class="anchor" aria-label="anchor" href="#volume-offsets"></a>
+</h2>
+<p>The volume approach uses label-specific degree volumes to represent
+how much of the graph is available for each label in each sample. For a
+label, the volume is the sum of degrees of cells with that label. Let
+<code>2m</code> be twice the number of edges in the sample.</p>
+<p>Offsets are log expected counts under a Chung-Lu-style graph with
+preserved label volumes:</p>
 <ul>
-<li>Nodes: <code>log(total cells)</code> with optional TMM correction on
-the node layer.</li>
-<li>Edges: <code>log(vol_a) + log(vol_b) - log(2m)</code>
-</li>
+<li>Edges: <code>log(vol_a) + log(vol_b) - log(2m)</code>, with a
+<code>-log(2)</code> correction for same-label unordered pairs.</li>
 <li>Triangles:
-<code>log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)</code>
-</li>
-<li>Wedges: centered triples, using <code>center_pairs</code> (sum of
-degree*(degree-1) for the center label) and leaf volumes.</li>
+<code>log(vol_a) + log(vol_b) + log(vol_c) - 2 * log(2m)</code>, plus an
+unordered-label multiplicity correction.</li>
+<li>Wedges: center exposure from <code>sum(degree * (degree - 1))</code>
+for the center label, leaf-label volumes, and an equal-leaf
+correction.</li>
 </ul>
-<p>A small <code>offset_pseudo</code> is used to avoid log(0).</p>
-</div>
-<div class="section level3">
-<h3 id="volume-model">Volume model<a class="anchor" aria-label="anchor" href="#volume-model"></a>
-</h3>
-<p>For each motif, counts are modeled with a negative binomial GLM
-(edgeR QL) with the volume offset. The design matrix comes from
-<code>design_formula</code> and can include multiple covariates. The
-resulting logFC is interpreted as change in motif rate relative to the
-volume baseline.</p>
-<p>Use <code><a href="../reference/top_edges.html">top_edges()</a></code> to extract node/edge results from this
-model.</p>
-</div>
-<div class="section level3">
-<h3 id="co-occurrence-triplets-merged">Co-occurrence triplets (merged)<a class="anchor" aria-label="anchor" href="#co-occurrence-triplets-merged"></a>
-</h3>
-<p>The co-occurrence strategy applies:</p>
-<ul>
-<li>Volume offsets for 3-node motifs with
-<code>triplet_mode = "merge"</code> to collapse wedges + triangles into
-unordered triplets.</li>
-</ul>
-<p>Use <code>top_triplets(..., strategy = "cooccurrence")</code> after
-running <code>motif_edger(..., triplet_mode = "merge")</code>.</p>
-</div>
-<div class="section level3">
-<h3 id="topology-triplets-closure">Topology triplets (closure)<a class="anchor" aria-label="anchor" href="#topology-triplets-closure"></a>
-</h3>
-<p>Topology modeling uses the submotif-adjusted strategy with
-<code>triplet_mode = "closure"</code>. Triangles are adjusted by total
-triples (open+closed) and wedges by edge-derived covariates
-(edge-force), while retaining volume offsets as the baseline exposure.
-Use <code>top_triplets(..., strategy = "topology")</code> to extract
-these results.</p>
-</div>
-<div class="section level3">
-<h3 id="assumptions">Assumptions<a class="anchor" aria-label="anchor" href="#assumptions"></a>
-</h3>
-<ul>
-<li>Delaunay edges are a reasonable proxy for spatial adjacency in each
-sample.</li>
-<li>Pruning by <code>max_edge_len</code> removes long-range edges
-without removing meaningful local adjacency.</li>
-<li>Cell labels are accurate and consistent across samples.</li>
-<li>Samples are independent, and motif counts follow a negative binomial
-model.</li>
-<li>The volume offsets approximate expected counts under a graph with
-preserved label volumes (degree sums) and total edge count.</li>
-</ul>
-</div>
+<p>The offsets use a small <code>offset_pseudo</code> to avoid
+<code>log(0)</code>.</p>
 </div>
 <div class="section level2">
-<h2 id="user-guide">User guide<a class="anchor" aria-label="anchor" href="#user-guide"></a>
+<h2 id="differential-model">Differential Model<a class="anchor" aria-label="anchor" href="#differential-model"></a>
 </h2>
-<div class="section level3">
-<h3 id="concepts-and-terminology">Concepts and terminology<a class="anchor" aria-label="anchor" href="#concepts-and-terminology"></a>
-</h3>
-<ul>
-<li>Sample: a single spatial dataset (one slide, region, or image).</li>
-<li>cellgraph: the main object produced by
-<code><a href="../reference/build_cell_graphs.html">build_cell_graphs()</a></code> and augmented by
-<code><a href="../reference/count_motifs_graphs.html">count_motifs_graphs()</a></code> and <code><a href="../reference/motif_edger.html">motif_edger()</a></code>.</li>
-<li>Motif: a node, edge, triangle, or wedge defined by labels and
-counted per sample.</li>
-<li>Offset: a log expected count used in the GLM to normalize for
-exposure.</li>
-<li>Strategy: co-occurrence (<code>volume</code>, merge) or topology
-(submotif-adjusted, closure).</li>
-<li>Motif space: the combinatorial set of label-based motifs; see
-<code><a href="../reference/motif_space_size.html">motif_space_size()</a></code>.</li>
-</ul>
+<p><code><a href="../reference/motif_edger.html">motif_edger()</a></code> stacks edge, wedge, and triangle counts
+and fits a single edgeR quasi-likelihood negative-binomial GLM with
+volume offsets. The design matrix comes from <code>design_formula</code>
+and can include multiple covariates:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/motif_edger.html">motif_edger</a></span><span class="op">(</span></span>
+<span>  <span class="va">cellgraph</span>,</span>
+<span>  sample_df <span class="op">=</span> <span class="va">sample_df</span>,</span>
+<span>  design_formula <span class="op">=</span> <span class="st">"~ condition + batch"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">edges_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
+<span><span class="va">motifs2_tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/top_edges.html">top_motifs2</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
+<p>The logFC is interpreted as a differential motif rate after
+correcting for the volume exposure. The p-value is a model coefficient
+test, not a direct test of raw counts or normalized-count medians.</p>
+<p>Before fitting, CellEdgeR applies <code><a href="https://rdrr.io/pkg/edgeR/man/filterByExpr.html" class="external-link">edgeR::filterByExpr()</a></code>
+to the stacked edge/wedge/triangle count matrix. This is the standard
+edgeR low-expression filter and prevents motifs observed in too few
+samples, including one-sample spikes, from entering the multiple-testing
+table. The filtering summary is stored in
+<code>cellgraph$edger$filter</code>.</p>
 </div>
-<div class="section level3">
-<h3 id="required-inputs">Required inputs<a class="anchor" aria-label="anchor" href="#required-inputs"></a>
-</h3>
+<div class="section level2">
+<h2 id="motif2-submotif-columns">Motif2 Submotif Columns<a class="anchor" aria-label="anchor" href="#motif2-submotif-columns"></a>
+</h2>
+<p><code><a href="../reference/top_edges.html">top_motifs2()</a></code> returns wedges and triangles in one table.
+It also adds the edge submotifs implied by each three-label motif:</p>
+<ul>
+<li>
+<code>edge12</code>, <code>edge13</code>, <code>edge23</code>.</li>
+<li>
+<code>edge12_logFC</code>, <code>edge13_logFC</code>,
+<code>edge23_logFC</code>.</li>
+<li>
+<code>edge12_PValue</code>, <code>edge13_PValue</code>,
+<code>edge23_PValue</code>.</li>
+<li>
+<code>edge12_FDR</code>, <code>edge13_FDR</code>,
+<code>edge23_FDR</code>.</li>
+<li>
+<code>submotif_min_FDR</code> and
+<code>submotif_max_abs_logFC</code>.</li>
+</ul>
+<p>For wedges, label 1 is the center. <code>edge12</code> and
+<code>edge13</code> are the center-leaf edges, while <code>edge23</code>
+is the leaf-leaf closing edge.</p>
+</div>
+<div class="section level2">
+<h2 id="required-inputs">Required Inputs<a class="anchor" aria-label="anchor" href="#required-inputs"></a>
+</h2>
 <ol style="list-style-type: decimal">
 <li>
 <code>cells_by_sample</code>: a named list of data frames. Each data
 frame must have:
 <ul>
-<li>Column 1: numeric x coordinate</li>
-<li>Column 2: numeric y coordinate</li>
-<li>Column 3: label (character or factor)</li>
+<li>Column 1: numeric x coordinate.</li>
+<li>Column 2: numeric y coordinate.</li>
+<li>Column 3: label, character or factor.</li>
 </ul>
 </li>
 <li>
@@ -236,10 +218,10 @@ frame must have:
 names equal to <code>names(cells_by_sample)</code>.</li>
 </ol>
 </div>
-<div class="section level3">
-<h3 id="build-graphs-and-count-motifs">Build graphs and count motifs<a class="anchor" aria-label="anchor" href="#build-graphs-and-count-motifs"></a>
-</h3>
-<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<div class="section level2">
+<h2 id="build-graphs-and-count-motifs">Build Graphs And Count Motifs<a class="anchor" aria-label="anchor" href="#build-graphs-and-count-motifs"></a>
+</h2>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_cell_graphs.html">build_cell_graphs</a></span><span class="op">(</span><span class="va">cells_by_sample</span>, n_cores <span class="op">=</span> <span class="fl">4</span><span class="op">)</span></span>
 <span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/count_motifs_graphs.html">count_motifs_graphs</a></span><span class="op">(</span></span>
 <span>  <span class="va">cellgraph</span>,</span>
@@ -248,13 +230,13 @@ names equal to <code>names(cells_by_sample)</code>.</li>
 <span>  n_cores <span class="op">=</span> <span class="fl">4</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level3">
-<h3 id="choose-a-delaunay-cutoff-max_edge_len">Choose a Delaunay cutoff (max_edge_len)<a class="anchor" aria-label="anchor" href="#choose-a-delaunay-cutoff-max_edge_len"></a>
-</h3>
+<div class="section level2">
+<h2 id="choose-a-delaunay-cutoff">Choose A Delaunay Cutoff<a class="anchor" aria-label="anchor" href="#choose-a-delaunay-cutoff"></a>
+</h2>
 <p>Inspect the edge-length distribution and choose a cutoff that removes
 the long tail while keeping local neighbors. The cutoff is in the same
 units as your coordinates.</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">edge_lengths</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/unlist.html" class="external-link">unlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">cellgraph</span><span class="op">$</span><span class="va">per_sample_graph</span>, <span class="kw">function</span><span class="op">(</span><span class="va">ps</span><span class="op">)</span> <span class="va">ps</span><span class="op">$</span><span class="va">edge_len</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>edge_len <span class="op">=</span> <span class="va">edge_lengths</span><span class="op">)</span>, <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span><span class="va">edge_len</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
@@ -264,71 +246,24 @@ units as your coordinates.</p>
 <span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">ggtitle</a></span><span class="op">(</span><span class="st">"Edge length distribution (density, log-x)"</span><span class="op">)</span> <span class="op">+</span></span>
 <span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggtheme.html" class="external-link">theme_minimal</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level3">
-<h3 id="differential-analysis-and-multivariate-designs">Differential analysis and multivariate designs<a class="anchor" aria-label="anchor" href="#differential-analysis-and-multivariate-designs"></a>
-</h3>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">cellgraph</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/motif_edger.html">motif_edger</a></span><span class="op">(</span></span>
-<span>  <span class="va">cellgraph</span>,</span>
-<span>  sample_df <span class="op">=</span> <span class="va">sample_df</span>,</span>
-<span>  design_formula <span class="op">=</span> <span class="st">"~ condition + batch"</span>,</span>
-<span>  strategies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"volume"</span>, <span class="st">"submotif_adj"</span><span class="op">)</span>,</span>
-<span>  triplet_mode <span class="op">=</span> <span class="st">"closure"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="../reference/top_edges.html">top_edges</a></span><span class="op">(</span><span class="va">cellgraph</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="../reference/top_edges.html">top_triplets</a></span><span class="op">(</span><span class="va">cellgraph</span>, strategy <span class="op">=</span> <span class="st">"topology"</span>, coef <span class="op">=</span> <span class="st">"conditiontreated"</span><span class="op">)</span></span></code></pre></div>
-<p>The formula can include multiple covariates, interactions, or
-continuous variables (for example
-<code>~ condition + batch + age</code>).</p>
-</div>
-<div class="section level3">
-<h3 id="triplet-handling">Triplet handling<a class="anchor" aria-label="anchor" href="#triplet-handling"></a>
-</h3>
-<p>For 3-node motifs, you can choose how wedges and triangles are
-handled:</p>
-<ul>
-<li>
-<code>triplet_mode = "merge"</code>: wedges and triangles are
-collapsed into unordered triplet motifs (tests overall triplet
-abundance).</li>
-<li>
-<code>triplet_mode = "closure"</code>: wedges are tested for
-abundance, then triangles are modeled for closure using total triples
-(open+closed).</li>
-</ul>
-<p>Both modes require
-<code>count_motifs_graphs(..., include_wedge = TRUE)</code>.</p>
-</div>
-<div class="section level3">
-<h3 id="motif-labels-vs-graph-isomorphisms">Motif labels vs graph isomorphisms<a class="anchor" aria-label="anchor" href="#motif-labels-vs-graph-isomorphisms"></a>
-</h3>
-<p>CellEdgeR counts <strong>labelled motifs</strong> (colored
-graphlets): each distinct label combination is a separate motif, even
-when the underlying unlabeled topology is the same. This differs from
-graph isomorphism counts, which collapse motifs by topology alone.
-<code>triplet_mode = "merge"</code> only collapses open vs closed
-triples for a <em>given label multiset</em>; it does
-<strong>not</strong> merge distinct label assignments.</p>
-</div>
-<div class="section level3">
-<h3 id="motif-space-size">Motif space size<a class="anchor" aria-label="anchor" href="#motif-space-size"></a>
-</h3>
-<p>You can summarize how many label-based motifs are possible given the
-label set and triplet handling mode:</p>
+<div class="section level2">
+<h2 id="motif-space-size">Motif Space Size<a class="anchor" aria-label="anchor" href="#motif-space-size"></a>
+</h2>
+<p><code><a href="../reference/motif_space_size.html">motif_space_size()</a></code> summarizes the number of possible
+tested edge, triangle, and wedge label motifs:</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/motif_space_size.html">motif_space_size</a></span><span class="op">(</span><span class="va">cellgraph</span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level3">
-<h3 id="plotting-motifs">Plotting motifs<a class="anchor" aria-label="anchor" href="#plotting-motifs"></a>
-</h3>
+<div class="section level2">
+<h2 id="plotting-motifs">Plotting Motifs<a class="anchor" aria-label="anchor" href="#plotting-motifs"></a>
+</h2>
 <p>Spatial plot of a motif within a sample:</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_sample_graph.html">plot_sample_graph</a></span><span class="op">(</span></span>
 <span>  <span class="va">cellgraph</span>,</span>
 <span>  sample_name <span class="op">=</span> <span class="st">"s1"</span>,</span>
 <span>  max_edge_len <span class="op">=</span> <span class="fl">50</span>,</span>
-<span>  motif_key <span class="op">=</span> <span class="st">"E_a_b"</span>,</span>
+<span>  motif_key <span class="op">=</span> <span class="st">"T_a_b_c"</span>,</span>
 <span>  motif_node_size <span class="op">=</span> <span class="fl">0.8</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 <p>Quantification of motifs across samples:</p>
@@ -340,9 +275,23 @@ label set and triplet handling mode:</p>
 <span><span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="va">df_plot</span>, <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">condition</span>, y <span class="op">=</span> <span class="va">value</span>, fill <span class="op">=</span> <span class="va">condition</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
 <span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_boxplot.html" class="external-link">geom_boxplot</a></span><span class="op">(</span><span class="op">)</span> <span class="op">+</span></span>
 <span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_jitter.html" class="external-link">geom_jitter</a></span><span class="op">(</span>width <span class="op">=</span> <span class="fl">0.1</span>, alpha <span class="op">=</span> <span class="fl">0.6</span><span class="op">)</span> <span class="op">+</span></span>
-<span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">ylab</a></span><span class="op">(</span><span class="st">"Normalized motif count (volume offsets)"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">ylab</a></span><span class="op">(</span><span class="st">"Normalized motif count (volume offset)"</span><span class="op">)</span> <span class="op">+</span></span>
 <span>  <span class="fu">ggplot2</span><span class="fu">::</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">xlab</a></span><span class="op">(</span><span class="st">"condition"</span><span class="op">)</span></span></code></pre></div>
 </div>
+<div class="section level2">
+<h2 id="assumptions">Assumptions<a class="anchor" aria-label="anchor" href="#assumptions"></a>
+</h2>
+<ul>
+<li>Delaunay edges are a reasonable proxy for spatial adjacency in each
+sample.</li>
+<li>Pruning by <code>max_edge_len</code> removes long-range edges
+without removing meaningful local adjacency.</li>
+<li>Cell labels are accurate and consistent across samples.</li>
+<li>Samples are independent, and motif counts follow a negative-binomial
+model.</li>
+<li>Volume offsets approximate expected counts under a graph with
+preserved label degree volumes and total edge count.</li>
+</ul>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

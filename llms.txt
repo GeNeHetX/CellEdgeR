@@ -5,18 +5,23 @@ coordinates.
 
 ## Overview
 
-CellEdgeR builds per-sample Delaunay graphs, counts motifs (nodes,
-edges, triangles, optional wedges), and fits edgeR models. Offsets are
-computed once and stored in the cellgraph (offset modes: `volume`,
-`hier_null`): - Node offsets: `log(total cells) + log(TMM)` when
-available. - Edge/triangle/wedge offsets: structural Chung-Lu
-(volume-based). Motif keys are prefixed by layer: `N_` (nodes), `E_`
-(edges), `T_` (triangles), `W_` (wedge), and `TP_` when triangles/wedges
-are merged into unordered triplets.
+CellEdgeR builds per-sample Delaunay graphs, counts label-based motifs,
+and fits edgeR models with Chung-Lu-style volume offsets. Volume
+normalization is the main statistical model.
+
+The tested result sets are:
+
+- [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
+  edge motifs, keyed as `E_<label1>_<label2>`.
+- [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
+  wedge and triangle motifs, keyed as `W_<center>_<leaf1>_<leaf2>` and
+  `T_<label1>_<label2>_<label3>`.
+
+Node counts are still computed internally to build exposures and
+normalized submotif values, but nodes are not tested as differential
+motifs. Wedges and triangles are not merged into `TP_*` triplets.
 
 ## Installation
-
-Install dependencies and then install the package:
 
 ``` r
 install.packages(c("geometry", "Matrix"))
@@ -27,128 +32,90 @@ devtools::install_github("GeNeHetX/CellEdgeR")
 library(CellEdgeR)
 ```
 
-## Typical workflow
+## Typical Workflow
 
-1.  **Prepare your data** Provide a *named* list of samples. Each
-    element is a data frame with numeric `x`, `y` coordinates in the
-    first two columns and a label vector (cell type, cluster, etc.) in
-    the third column. Optionally add a logical `boundary`/`is_boundary`
-    column to flag boundary cells for erosion (excluded by default).
+1.  Prepare a named list of samples. Each element is a data frame with
+    numeric `x`, `y` coordinates and a cell label column.
 
-    ``` r
-    samples_list <- make_demo_samples(n_cells=10000,seed = 42) # enriches T_a_b_c in the second half by default
+``` r
+samples_list <- make_demo_samples(n_cells = 10000, seed = 42)
 
-    metadata_df <- data.frame(
-      condition = rep(c("ctrl", "treated"), each = length(samples_list) / 2),
-      batch = sample(c("batch1", "batch2"), length(samples_list), replace = TRUE),
-      row.names = names(samples_list)
-    )
-    ```
+metadata_df <- data.frame(
+  condition = rep(c("ctrl", "treated"), each = length(samples_list) / 2),
+  batch = sample(c("batch1", "batch2"), length(samples_list), replace = TRUE),
+  row.names = names(samples_list)
+)
+```
 
-2.  **Build graphs, then count motifs (same cellgraph object)**
+2.  Build graphs and count motifs.
 
-    ``` r
-    cellgraph <- build_cell_graphs(samples_list, n_cores = 4, verbose = TRUE)
-    cellgraph <- count_motifs_graphs(
-      cellgraph,
-      max_edge_len = 50,     # set NA/NULL/<=0 to disable pruning
-      include_wedge = TRUE,
-      n_cores = 4
-    )
-    ```
+``` r
+cellgraph <- build_cell_graphs(samples_list, n_cores = 4, verbose = TRUE)
+cellgraph <- count_motifs_graphs(
+  cellgraph,
+  max_edge_len = 50,
+  include_wedge = TRUE,
+  n_cores = 4
+)
+```
 
-    [`build_cell_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/build_cell_graphs.md)
-    returns a `cellEdgeR_obj` with per-sample Delaunay graphs.
-    [`count_motifs_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/count_motifs_graphs.md)
-    reuses that object and adds motif counts, exposures, offsets,
-    normalized counts, relative counts, and run parameters. Offsets,
-    normalized counts, and relative counts are stored per offset mode
-    (e.g., `cellgraph$norm_counts$volume`,
-    `cellgraph$norm_counts$hier_null`).
+[`count_motifs_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/count_motifs_graphs.md)
+stores raw counts, volume exposures, volume offsets, normalized counts,
+and relative counts. The stored offset mode is `volume`.
 
-3.  **Fit differential models**
+3.  Fit the differential model and extract the two result tables.
 
-    ``` r
-    cellgraph <- motif_edger(
-      cellgraph = cellgraph,
-      sample_df = metadata_df,  # rownames must match sample names
-      design_formula = "~ condition + batch"
-    )
+``` r
+cellgraph <- motif_edger(
+  cellgraph = cellgraph,
+  sample_df = metadata_df,
+  design_formula = "~ condition + batch"
+)
 
-    edges_tbl <- top_edges(cellgraph, coef = "conditiontreated")
-    topo_tbl <- top_triplets(cellgraph, strategy = "topology", coef = "conditiontreated")
-    head(edges_tbl)
-    head(topo_tbl)
-    ```
+results <- motif_results(cellgraph, coef = "conditiontreated")
+edges_tbl <- results$edges
+motifs2_tbl <- results$motifs2
 
-    [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-    runs volume and submotif-adjusted (`submotif_adj`) strategies by
-    default and stores results in `cellgraph$edger$strategies`. Use
-    [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
-    for node/edge motifs (volume offsets). For 3-node motifs,
-    **co-occurrence vs topology is a critical choice**:
+head(edges_tbl)
+head(motifs2_tbl)
+```
 
-    - **Co-occurrence**
-      (`top_triplets(..., strategy = "cooccurrence")`): wedges +
-      triangles are merged into unordered triplets (`TP_*`) and modeled
-      with volume offsets only. This tests whether a label triplet is
-      enriched overall, regardless of closure.
-    - **Topology** (`top_triplets(..., strategy = "topology")`): wedges
-      and triangles are modeled separately in closure mode. **Wedges are
-      submotif-adjusted using edge-derived covariates** (edge-force),
-      while triangles test closure using total triples as a covariate
-      (submotif-adjusted).
+`motifs2_tbl` includes the wedge/triangle result plus edge-submotif
+columns: `edge12`, `edge13`, `edge23`, their `logFC`/`PValue`/`FDR`, and
+summary columns `submotif_min_FDR` and `submotif_max_abs_logFC`.
 
-    By default,
-    [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-    computes both co-occurrence (merge) and topology (closure) results
-    in a single call (when `include_wedge = TRUE`), so
-    [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
-    can switch strategies without rerunning the model.
+Before fitting,
+[`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
+applies
+[`edgeR::filterByExpr()`](https://rdrr.io/pkg/edgeR/man/filterByExpr.html)
+to the stacked edge/wedge/triangle count matrix. One-off motifs or
+motifs with too little support are not tested and therefore do not
+receive p-values or FDR values. Filter details are stored in
+`cellgraph$edger$filter`.
 
-    For co-occurrence results only, `model = "full"` uses your full
-    design, while `model = "null"` is intercept-only (baseline rate).
-    Topology ignores `model`.
+4.  Inspect normalized counts or spatial motif plots.
 
-4.  **Inspect/visualize motifs**
+``` r
+norm_df <- get_motif_values(cellgraph, value = "norm")
+head(norm_df)
 
-    ``` r
-    norm_df <- get_motif_values(cellgraph, value = "norm")
-    head(norm_df)
-    ```
+plot_sample_graph(
+  cellgraph,
+  sample_name = "s1",
+  max_edge_len = 50,
+  motif_key = "T_a_b_c",
+  motif_node_size = 0.8,
+  dim_node_nonmotif = 0.1,
+  alpha_node_nonmotif = 0.2,
+  alpha_edge_nonmotif = 0.2
+)
+```
 
-    ``` r
-    library(ggplot2)
-
-    motif_key <- "T_a_b_c"
-    df_plot <- data.frame(sample = rownames(norm_df), value = norm_df[[motif_key]])
-    df_plot <- merge(df_plot, metadata_df, by.x = "sample", by.y = "row.names", all.x = TRUE)
-    ggplot(df_plot, aes(x = condition, y = value, fill = condition)) +
-      geom_boxplot() +
-      geom_jitter(width = 0.1, alpha = 0.6) +
-      ylab(paste0("Normalized (log2) count: ", motif_key)) +
-      xlab("condition")
-    ```
-
-    ``` r
-    plot_sample_graph(
-      cellgraph,
-      sample_name = "s1",
-      max_edge_len = 50,
-      motif_key = "E_a_b",
-      motif_node_size=0.5,
-      dim_node_nonmotif = 0.1,
-      alpha_node_nonmotif = 0.2,
-      alpha_edge_nonmotif = 0.2
-    )
-    ```
-
-## Choosing a pruning threshold
+## Choosing A Pruning Threshold
 
 The `max_edge_len` threshold controls which Delaunay edges are retained
-before motif counting. To pick a cutoff, inspect the edge-length
-distribution and drop the sparse tail while preserving biologically
-relevant neighbors.
+before motif counting. Inspect the edge-length distribution and drop the
+sparse tail while preserving biologically relevant local neighbors.
 
 ``` r
 edge_lengths <- unlist(lapply(cellgraph$per_sample_graph, function(ps) ps$edge_len))
@@ -162,56 +129,56 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
   ggplot2::theme_minimal()
 ```
 
+## Statistical Model
+
+CellEdgeR uses volume offsets as a Chung-Lu-style exposure correction:
+
+- Edges use label degree volumes and the sample total edge volume.
+- Triangles use the three label volumes and unordered-label
+  multiplicity.
+- Wedges use center-label degree-pair exposure plus leaf-label volumes,
+  with an equal-leaf correction.
+
+The edgeR QL model tests differential motif rates after this exposure
+correction. This is not a simple test of raw or normalized boxplot
+medians.
+
 ## Tips
 
-- Reuse the `graph_obj` when experimenting with pruning or the wedge
-  option (`include_wedge`) to avoid rerunning the triangulation.
-- If you want erosion, provide a boundary mask per sample (column
-  `boundary`/`is_boundary` or `erosion_cells`); motifs touching those
-  cells are excluded without re-triangulating.
-- Record the `max_edge_len` used for each run so downstream results stay
-  traceable.
-- For quick inspection, use
-  `get_motif_values(cellgraph, value = "norm")` and apply your own
-  plotting/statistics.
-- `get_motif_values(..., value = "norm")` uses the `volume` offsets only
-  (the baseline for co-occurrence and topology models).
-- [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
-  reports the combinatorial number of possible motif labels given the
-  stored label set and triplet mode.
+- Use `include_wedge = TRUE` when you want both wedges and triangles in
+  [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md).
+- Provide `boundary`/`is_boundary` columns or `erosion_cells` if
+  boundary motifs should be excluded.
+- Record `max_edge_len` and `offset_version` from `cellgraph$parameters`
+  for reproducibility.
+- Use
+  `get_motif_values(cellgraph, value = "norm", include_submotifs = TRUE)`
+  to plot a motif with its edge submotifs.
+- Use
+  [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
+  to summarize the possible tested edge/wedge/triangle label space.
 
-## Glossary
+## Main Functions
 
-- [`make_demo_samples()`](https://GeNeHetX.github.io/CellEdgeR/reference/make_demo_samples.md):
-  Create a synthetic named list of samples for quick testing (defaults
-  to a boosted `T_a_b_c` motif in the second half; set
-  `boost_motif = FALSE` to disable).
 - [`build_cell_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/build_cell_graphs.md):
   Build per-sample Delaunay graphs from coordinates and labels.
 - [`count_motifs_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/count_motifs_graphs.md):
-  Count node/edge/triangle (and optional wedge) motifs and compute
-  offsets/normalization.
+  Count node, edge, triangle, and optional wedge motifs and compute
+  volume offsets.
 - [`merge_motif_objs()`](https://GeNeHetX.github.io/CellEdgeR/reference/merge_motif_objs.md):
-  Merge two motif objects and recompute offsets/normalized counts.
+  Merge motif objects and recompute volume offsets.
 - [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md):
-  Fit differential motif models (volume, submotif-adjusted) and store
-  results.
+  Fit the volume-offset edgeR model.
 - [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
-  Return ranked node/edge motifs (volume offsets).
-- [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
-  Return ranked 3-node motifs; **co-occurrence** (merged, volume-only)
-  or **topology** (closure, submotif-adjusted).
-- [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md):
-  Count possible motif labels based on label set and triplet mode.
+  Return ranked edge motifs.
+- [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
+  Return ranked wedge and triangle motifs with edge-submotif statistics.
+- [`motif_results()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md):
+  Return `edges` and `motifs2` in one named list.
 - [`get_motif_values()`](https://GeNeHetX.github.io/CellEdgeR/reference/get_motif_values.md):
-  Return raw/normalized motif values (optionally including lower-order
-  submotifs; normalized uses `volume` offsets).
+  Return raw or volume-normalized motif values.
 - [`plot_sample_graph()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_sample_graph.md):
-  Plot one sample’s graph and highlight motifs.
-- `cellEdgeR_obj`: Main object storing `sample_name`, counts, exposures,
-  offsets, and edgeR results.
-- `cellEdgeR_graphs`: Graph-only object with `per_sample_graph` ready
-  for motif counting.
+  Plot one sample graph and highlight a motif.
 
 # Package index
 
@@ -220,7 +187,7 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - [`build_cell_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/build_cell_graphs.md)
   : Build cached cell graphs for motif counting
 - [`count_motifs_graphs()`](https://GeNeHetX.github.io/CellEdgeR/reference/count_motifs_graphs.md)
-  : Count cell-type motifs on spatial graphs
+  : Count cell-type motifs on Delaunay graphs
 - [`get_motif_values()`](https://GeNeHetX.github.io/CellEdgeR/reference/get_motif_values.md)
   : Retrieve motif values (raw, normalized)
 - [`get_norm_counts()`](https://GeNeHetX.github.io/CellEdgeR/reference/get_norm_counts.md)
@@ -230,9 +197,9 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - [`merge_motif_objs()`](https://GeNeHetX.github.io/CellEdgeR/reference/merge_motif_objs.md)
   : Merge motif objects
 - [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-  : Differential motif testing with multiple strategies
+  : Differential motif testing with edgeR
 - [`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
-  : Count possible motif labels
+  : Count the number of possible tested motif labels
 - [`plot_motif_artifact_check()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_artifact_check.md)
   : Artifact check: residuals versus edge density
 - [`plot_motif_slope_test()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_motif_slope_test.md)
@@ -244,7 +211,9 @@ ggplot2::ggplot(data.frame(edge_len = edge_lengths), ggplot2::aes(edge_len)) +
 - [`plot_sample_graph()`](https://GeNeHetX.github.io/CellEdgeR/reference/plot_sample_graph.md)
   : Plot a sample graph with highlighted motifs
 - [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
+  [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
   [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
+  [`motif_results()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
   : Top motif results
 
 # Articles

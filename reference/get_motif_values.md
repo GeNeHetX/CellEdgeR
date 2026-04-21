@@ -66,8 +66,6 @@ motifs <- count_motifs_graphs(graphs, max_edge_len = 3)
 #> Counting edge motifs (unordered label pairs)…
 #> Counting triangle motifs (unordered label triplets) in C++…
 #> Counts ready: |labels|=2, singles=2, pairs=3, triangles=2
-#> Warning: no non-missing arguments to max; returning -Inf
-#> Warning: no non-missing arguments to max; returning -Inf
 tri_key <- rownames(motifs$raw_count$triangle)[1]
 get_motif_values(motifs, motif_key = tri_key, value = "raw")
 #>    T_A_A_B
@@ -75,6 +73,6 @@ get_motif_values(motifs, motif_key = tri_key, value = "raw")
 #> s2       0
 get_motif_values(motifs, motif_key = tri_key, value = "norm")
 #>    T_A_A_B
-#> s1   1.125
+#> s1   0.375
 #> s2   0.000
 ```

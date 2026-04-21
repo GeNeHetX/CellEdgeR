@@ -8,7 +8,7 @@ sub-motif offsets using a log-log regression.
 ``` r
 plot_motif_slope_test(
   cellgraph,
-  offset_mode = "hier_null",
+  offset_mode = "volume",
   layer = "triangle",
   motif_key = NULL,
   log_base = exp(1),
@@ -28,7 +28,7 @@ plot_motif_slope_test(
 
 - offset_mode:
 
-  Offset set to use for the expectation; defaults to `"hier_null"`.
+  Offset set to use for the expectation; defaults to `"volume"`.
 
 - layer:
 

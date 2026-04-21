@@ -8,7 +8,7 @@ edge density.
 ``` r
 plot_motif_artifact_check(
   cellgraph,
-  offset_mode = "hier_null",
+  offset_mode = "volume",
   layer = "triangle",
   motif_key = NULL,
   log_base = 2,
@@ -29,7 +29,7 @@ plot_motif_artifact_check(
 
 - offset_mode:
 
-  Offset set to use for residuals; defaults to `"hier_null"`.
+  Offset set to use for residuals; defaults to `"volume"`.
 
 - layer:
 

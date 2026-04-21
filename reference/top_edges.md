@@ -2,9 +2,11 @@
 
 Convenience helpers for retrieving ranked motif results from
 [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md).
-`top_edges()` returns node/edge motifs. `top_triplets()` returns 3-node
-motifs using either co-occurrence (merged triplets, volume offsets) or
-topology (submotif-adjusted, closure mode).
+`top_edges()` returns edge motifs only. `top_motifs2()` returns wedge
+and triangle motifs with the corresponding edge-submotif statistics
+added as columns. `motif_results()` returns both tables as a named list.
+`top_triplets()` is a deprecated compatibility alias for
+`top_motifs2()`.
 
 ## Usage
 
@@ -12,35 +14,15 @@ topology (submotif-adjusted, closure mode).
 top_edges(cellgraph, coef = NULL, model = c("full", "null"), n = Inf,
   fdr_method = "BH")
 
-top_triplets(cellgraph, strategy = c("cooccurrence", "topology"),
-  coef = NULL, model = c("full", "null"), n = Inf, fdr_method = "BH")
+top_motifs2(cellgraph, coef = NULL, model = c("full", "null"), n = Inf,
+  fdr_method = "BH")
+
+top_triplets(cellgraph, coef = NULL, model = c("full", "null"), n = Inf,
+  fdr_method = "BH", strategy = NULL)
+
+motif_results(cellgraph, coef = NULL, model = c("full", "null"), n = Inf,
+  fdr_method = "BH")
 ```
-
-## Details
-
-**Co-occurrence (strategy = `cooccurrence`):** wedges and triangles are
-merged into unordered triplets (`TP_*`) and modeled with volume offsets
-only. This tests whether a label triplet is over/under represented as a
-whole, regardless of closure. Computed by default when
-[`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-is run with `include_wedge = TRUE`; explicitly use
-`triplet_mode = "merge"` to recompute only this mode.
-
-**Topology (strategy = `topology`):** wedges and triangles are modeled
-separately in closure mode. Wedges are *submotif-adjusted* using
-edge-derived covariates (edge-force), and triangles are tested for
-closure using total triples as a covariate (submotif-adjusted). Computed
-by default when
-[`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
-is run with `include_wedge = TRUE`; explicitly use
-`triplet_mode = "closure", strategies = "submotif_adj"` to recompute
-only this mode.
-
-**Model selection (full vs null):** when `strategy = "cooccurrence"`,
-`model = "full"` uses the full design formula, and `model = "null"` uses
-an intercept-only model (useful for diagnostics or when you want the
-baseline rate). Topology uses the submotif-adjusted model and ignores
-`model`.
 
 ## Arguments
 
@@ -55,9 +37,7 @@ baseline rate). Topology uses the submotif-adjusted model and ignores
 
 - model:
 
-  Which stored model to use for edgeR strategies: `full` or `null`.
-  `full` uses the provided design formula; `null` uses an intercept-only
-  model. Ignored when `strategy = "topology"`.
+  Which stored model to use: `full` or `null`.
 
 - n:
 
@@ -69,18 +49,19 @@ baseline rate). Topology uses the submotif-adjusted model and ignores
 
 - strategy:
 
-  Triplet strategy: `cooccurrence` (volume offsets, merged triplets) or
-  `topology` (submotif-adjusted, closure mode).
+  Deprecated compatibility argument for `top_triplets()`; ignored.
 
 ## Value
 
-A data frame with columns: motif, motif\\type, logFC, PValue, FDR, and
-model\\used.
+A data frame with columns `motif`, `motif_type`, `logFC`, `PValue`,
+`FDR`, and `model_used`. `top_motifs2()` also includes `edge12`,
+`edge13`, `edge23` and their edge-level `logFC`, `PValue`, and `FDR`
+values.
 
 ## See also
 
-[`motif_edger`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md),
-[`motif_space_size`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
+[`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md),
+[`motif_space_size()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_space_size.md)
 
 ## Examples
 
@@ -97,40 +78,39 @@ motifs <- count_motifs_graphs(graphs, max_edge_len = 3, include_wedge = TRUE)
 #> Counting triangle motifs (unordered label triplets) in C++…
 #> Also collecting wedge (open triplets)…
 #> Counts ready: |labels|=2, singles=2, pairs=3, triangles=2, wedge=0
-#> Warning: no non-missing arguments to max; returning -Inf
-#> Warning: no non-missing arguments to max; returning -Inf
 sample_df <- data.frame(condition = c("ctrl", "treated"), row.names = motifs$sample_name)
 
-res_merge <- motif_edger(motifs, sample_df, "~ condition", triplet_mode = "merge")
-#> Fitting edgeR (QL) for volume offsets...
-#> Warning: No residual df: cannot estimate dispersion
-#> edgeR dispersion estimation failed for volume/full model; tests will be empty.
-#> Fitting submotif-adjusted models (per motif)...
-#> Warning: No residual df: cannot estimate dispersion
-#> Warning: Submotif-adjusted dispersion could not be estimated; returning NA results.
-res_close <- motif_edger(motifs, sample_df, "~ condition", triplet_mode = "closure")
-#> Fitting edgeR (QL) for volume offsets...
-#> Warning: No residual df: cannot estimate dispersion
-#> edgeR dispersion estimation failed for volume/full model; tests will be empty.
-#> Fitting submotif-adjusted models (per motif)...
-#> Warning: No residual df: cannot estimate dispersion
-#> Warning: Submotif-adjusted dispersion could not be estimated; returning NA results.
-
-top_edges(res_merge, coef = "conditiontreated")
+res <- motif_edger(motifs, sample_df, "~ condition")
+#> Filtering low-count motifs with edgeR::filterByExpr: kept 0 / 5.
+top_edges(res, coef = "conditiontreated")
 #> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
-#>   motif motif_type logFC PValue FDR model_used
-#> 1   N_A       node    NA     NA  NA     volume
-#> 2   N_B       node    NA     NA  NA     volume
-#> 3 E_A_A       edge    NA     NA  NA     volume
-#> 4 E_A_B       edge    NA     NA  NA     volume
-#> 5 E_B_B       edge    NA     NA  NA     volume
-top_triplets(res_merge, strategy = "cooccurrence", coef = "conditiontreated")
+#> [1] motif      motif_type logFC      PValue     FDR        model_used
+#> <0 rows> (or 0-length row.names)
+top_motifs2(res, coef = "conditiontreated")
 #> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
-#>      motif motif_type logFC PValue FDR   model_used
-#> 6 TP_A_A_B    triplet    NA     NA  NA cooccurrence
-#> 7 TP_A_B_B    triplet    NA     NA  NA cooccurrence
-top_triplets(res_close, strategy = "topology", coef = "conditiontreated")
-#>           motif motif_type logFC PValue FDR model_used
-#> T_A_A_B T_A_A_B   triangle    NA     NA  NA   topology
-#> T_A_B_B T_A_B_B   triangle    NA     NA  NA   topology
+#>  [1] motif                  motif_type             logFC                 
+#>  [4] PValue                 FDR                    model_used            
+#>  [7] edge12                 edge13                 edge23                
+#> [10] edge12_logFC           edge13_logFC           edge23_logFC          
+#> [13] edge12_PValue          edge13_PValue          edge23_PValue         
+#> [16] edge12_FDR             edge13_FDR             edge23_FDR            
+#> [19] submotif_min_FDR       submotif_max_abs_logFC
+#> <0 rows> (or 0-length row.names)
+motif_results(res, coef = "conditiontreated")
+#> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
+#> Warning: No edgeR tests stored for volume coef: conditiontreated. Returning NA results.
+#> $edges
+#> [1] motif      motif_type logFC      PValue     FDR        model_used
+#> <0 rows> (or 0-length row.names)
+#> 
+#> $motifs2
+#>  [1] motif                  motif_type             logFC                 
+#>  [4] PValue                 FDR                    model_used            
+#>  [7] edge12                 edge13                 edge23                
+#> [10] edge12_logFC           edge13_logFC           edge23_logFC          
+#> [13] edge12_PValue          edge13_PValue          edge23_PValue         
+#> [16] edge12_FDR             edge13_FDR             edge23_FDR            
+#> [19] submotif_min_FDR       submotif_max_abs_logFC
+#> <0 rows> (or 0-length row.names)
+#> 
 ```

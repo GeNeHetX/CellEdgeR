@@ -3,7 +3,7 @@
 Plot differential motif results (from
 [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
 or
-[`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md))
+[`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md))
 in a standard volcano layout, with flexible motif labeling options.
 
 ## Usage
@@ -11,7 +11,7 @@ in a standard volcano layout, with flexible motif labeling options.
 ``` r
 plot_motif_volcano(
   x,
-  result_type = c("edges", "triplets_cooccurrence", "triplets_topology"),
+  result_type = c("edges", "motifs2"),
   coef = NULL,
   model = c("full", "null"),
   fdr_method = "BH",
@@ -35,28 +35,27 @@ plot_motif_volcano(
   A results data frame (e.g., output of
   [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
   or
-  [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)),
+  [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)),
   or a `cellEdgeR_obj` containing
   [`motif_edger()`](https://GeNeHetX.github.io/CellEdgeR/reference/motif_edger.md)
   results.
 
 - result_type:
 
-  Which results to fetch when `x` is a `cellEdgeR_obj`: `"edges"`,
-  `"triplets_cooccurrence"`, or `"triplets_topology"`.
+  Which results to fetch when `x` is a `cellEdgeR_obj`: `"edges"` or
+  `"motifs2"`.
 
 - coef:
 
   Coefficient name or index passed to
   [`top_edges()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
   /
-  [`top_triplets()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
+  [`top_motifs2()`](https://GeNeHetX.github.io/CellEdgeR/reference/top_edges.md)
   when `x` is a `cellEdgeR_obj`.
 
 - model:
 
-  Model (`"full"` or `"null"`) used for `"edges"` and
-  `"triplets_cooccurrence"` when `x` is a `cellEdgeR_obj`.
+  Model (`"full"` or `"null"`) used when `x` is a `cellEdgeR_obj`.
 
 - fdr_method:
 

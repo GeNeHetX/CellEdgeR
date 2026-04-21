@@ -85,6 +85,4 @@ cells <- list(
 )
 graphs <- build_cell_graphs(cells, verbose = FALSE)
 counts <- count_motifs_graphs(graph_obj = graphs, max_edge_len = 3, verbose = FALSE)
-#> Warning: no non-missing arguments to max; returning -Inf
-#> Warning: no non-missing arguments to max; returning -Inf
 ```
